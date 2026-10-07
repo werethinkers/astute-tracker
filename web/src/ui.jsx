@@ -95,6 +95,33 @@ export const initials = (name = '') =>
     .map((s) => s[0].toUpperCase())
     .join('');
 
+// ---------- icons (menu) ----------
+const ICONS = {
+  home: ['M3.5 10.5 12 3.5l8.5 7V20a1 1 0 0 1-1 1h-5v-6h-5v6h-5a1 1 0 0 1-1-1z'],
+  portfolio: ['M12 3.5 3 8l9 4.5L21 8z', 'M3 12.5l9 4.5 9-4.5', 'M3 17l9 4.5 9-4.5'],
+  team: ['M9 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z', 'M2.5 20.5c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5', 'M16 4.7a3.5 3.5 0 0 1 0 6.6', 'M18.2 15.2c1.8.8 2.9 2.5 3.3 5.3'],
+  workload: ['M4 4h4v4H4zM10 4h4v4h-4zM16 4h4v4h-4zM4 10h4v4H4zM10 10h4v4h-4zM4 16h4v4H4z'],
+  reviews: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'm8 12.3 2.8 2.8 5.4-5.6'],
+  flags: ['M5 21V4', 'M5 4h12l-2.5 4.5L17 13H5'],
+  ventures: ['M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16', 'M15 9h4a1 1 0 0 1 1 1v11', 'M2.5 21h19', 'M8 8h3M8 12h3M8 16h3'],
+  people: ['M9 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z', 'M2.5 20.5c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5', 'M19 8v6M16 11h6'],
+  import: ['M12 15V4', 'm7.5 8.5 4.5-4.5 4.5 4.5', 'M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4'],
+  today: ['M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4'],
+  work: ['M9 6.5h11M9 12h11M9 17.5h11', 'm3.5 6.5 1.3 1.3L7 5.5', 'm3.5 12 1.3 1.3L7 11', 'm3.5 17.5 1.3 1.3L7 16.5'],
+  projects: ['M3 7.5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],
+  logs: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 7v5l3.2 2'],
+  bell: ['M6 9.5a6 6 0 0 1 12 0c0 5.5 2.5 7 2.5 7h-17S6 15 6 9.5z', 'M10 20a2 2 0 0 0 4 0'],
+};
+export function Icon({ name }) {
+  return (
+    <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {(ICONS[name] || []).map((d) => (
+        <path key={d} d={d} />
+      ))}
+    </svg>
+  );
+}
+
 // ---------- small components ----------
 export const STATUS_LABEL = {
   proposed: 'Proposed',

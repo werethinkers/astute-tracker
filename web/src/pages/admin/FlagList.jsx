@@ -56,8 +56,10 @@ function AckModal({ flag, onClose, onDone }) {
   );
 }
 
-export default function FlagList({ flags, onChange, compact, cleared }) {
+export default function FlagList({ flags, onChange, compact, cleared, limit }) {
   const [ack, setAck] = useState(null);
+  const [all, setAll] = useState(false);
+  const shown = limit && !all ? flags.slice(0, limit) : flags;
   if (!flags.length)
     return (
       <Empty title={cleared ? 'No cleared flags yet' : 'Nothing is lagging'}>
@@ -67,7 +69,7 @@ export default function FlagList({ flags, onChange, compact, cleared }) {
   return (
     <>
       <div className="divide">
-        {flags.map((f) => {
+        {shown.map((f) => {
           const to = linkFor(f);
           return (
             <div key={f.id} className={`flag ${f.severity}${f.acknowledged_at && !cleared ? ' acked' : ''}`}>
@@ -102,6 +104,11 @@ export default function FlagList({ flags, onChange, compact, cleared }) {
           );
         })}
       </div>
+      {shown.length < flags.length && (
+        <button className="more" onClick={() => setAll(true)}>
+          Show {flags.length - shown.length} more
+        </button>
+      )}
       {ack && <AckModal flag={ack} onClose={() => setAck(null)} onDone={onChange} />}
     </>
   );

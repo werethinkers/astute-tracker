@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth.jsx';
-import { useApi, Avatar, Loading } from './ui.jsx';
+import { useApi, Avatar, Loading, Icon } from './ui.jsx';
 import Login from './pages/Login.jsx';
 import Today from './pages/Today.jsx';
 import MyWork from './pages/MyWork.jsx';
@@ -26,8 +26,9 @@ function Rail({ open, onNavigate }) {
   const { user, isAdmin, unread, logout } = useAuth();
   const counts = useApi(isAdmin ? '/admin/overview' : null, [useLocation().pathname]);
   const c = counts.data?.counts;
-  const L = ({ to, children, n, red, end }) => (
+  const L = ({ to, children, n, red, end, icon }) => (
     <NavLink to={to} end={end} className={({ isActive }) => `navlink${isActive ? ' active' : ''}`} onClick={onNavigate}>
+      <Icon name={icon} />
       <span>{children}</span>
       {n > 0 && <span className={`count${red ? ' red' : ''}`}>{n}</span>}
     </NavLink>
@@ -35,39 +36,39 @@ function Rail({ open, onNavigate }) {
   return (
     <aside className={`rail${open ? ' open' : ''}`} aria-label="Main navigation">
       <NavLink to="/" className="brand" onClick={onNavigate}>
-        <img src="/logo.png" alt="Astute Group" />
+        <img src="/logo-on-dark.png" alt="Astute Group" />
       </NavLink>
       <nav>
         {isAdmin ? (
           <>
-            <L to="/" end n={c ? c.overdue_features : 0} red>
+            <L to="/" end n={c ? c.overdue_features : 0} red icon="home">
               Command centre
             </L>
-            <L to="/portfolio">Portfolio</L>
-            <L to="/team">Team today</L>
-            <L to="/workload">Workload</L>
-            <L to="/reviews" n={c ? c.reviews_waiting + c.proposed_features : 0}>
+            <L to="/portfolio" icon="portfolio">Portfolio</L>
+            <L to="/team" icon="team">Team today</L>
+            <L to="/workload" icon="workload">Workload</L>
+            <L to="/reviews" icon="reviews" n={c ? c.reviews_waiting + c.proposed_features : 0}>
               Review queue
             </L>
-            <L to="/flags">Flags</L>
+            <L to="/flags" icon="flags">Flags</L>
             <div className="group">Set up</div>
-            <L to="/ventures">Ventures and calendar</L>
-            <L to="/users">People</L>
-            <L to="/import">Import</L>
+            <L to="/ventures" icon="ventures">Ventures and calendar</L>
+            <L to="/users" icon="people">People</L>
+            <L to="/import" icon="import">Import</L>
             <div className="group">My work</div>
-            <L to="/today">My day</L>
+            <L to="/today" icon="today">My day</L>
           </>
         ) : (
           <>
-            <L to="/" end>
+            <L to="/" end icon="today">
               Today
             </L>
-            <L to="/work">My work</L>
-            <L to="/projects">Projects</L>
-            <L to="/logs">Log history</L>
+            <L to="/work" icon="work">My work</L>
+            <L to="/projects" icon="projects">Projects</L>
+            <L to="/logs" icon="logs">Log history</L>
           </>
         )}
-        <L to="/notifications" n={unread}>
+        <L to="/notifications" n={unread} icon="bell">
           Notifications
         </L>
       </nav>
@@ -108,7 +109,7 @@ export default function App() {
       {open && <div style={{ position: 'fixed', inset: 0, zIndex: 35 }} onClick={() => setOpen(false)} />}
       <div style={{ minWidth: 0 }}>
         <header className="topbar">
-          <img src="/logo.png" alt="Astute Group" />
+          <img src="/logo-on-dark.png" alt="Astute Group" />
           <button className="btn sm" onClick={() => setOpen(true)} aria-label="Open menu">
             Menu
           </button>

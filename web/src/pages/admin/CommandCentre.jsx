@@ -64,7 +64,7 @@ export default function CommandCentre() {
               {data.flags.length} open. <Link to="/flags">History</Link>
             </span>
           </div>
-          <FlagList flags={data.flags} onChange={reload} />
+          <FlagList flags={data.flags} onChange={reload} limit={6} />
         </div>
 
         <div className="stack">
