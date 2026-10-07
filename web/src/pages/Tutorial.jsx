@@ -207,9 +207,9 @@ const DrawPropose = () => (
 const DrawTalk = () => (
   <Frame title="Comments and notifications">
     <div className="mock-comment">
-      <Avatar name="Person A" />
+      <Avatar name="Teammate A" />
       <div>
-        <strong className="small">Person A</strong>
+        <strong className="small">Teammate A</strong>
         <div className="small">The API returns dates in UTC. Should the app show IST?</div>
       </div>
     </div>
@@ -307,7 +307,7 @@ const DrawCommand = () => (
     </div>
     <div className="mock-flag red">
       <span className="sev red">Overdue</span> <strong className="small">Calendar view is 1 working day late</strong>
-      <div className="tiny muted">Project A / Job scheduling. Owner: Person C.</div>
+      <div className="tiny muted">Project A / Job scheduling. Owner: Teammate C.</div>
     </div>
     <div className="mock-flag amber">
       <span className="sev amber">Stalled</span> <strong className="small">No work logged on Blog posts for 3 working days</strong>
@@ -349,9 +349,9 @@ const DrawVenture = () => (
 const DrawPeople = () => (
   <Frame title="Add a person">
     <div className="mock-label">Name</div>
-    <Box>Person A</Box>
+    <Box>Teammate A</Box>
     <div className="mock-label">Work email</div>
-    <Box>person.a@example.com</Box>
+    <Box>teammate.a@example.com</Box>
     <div className="mock-label">Role</div>
     <div className="seg">
       <button type="button" className="on">
@@ -403,10 +403,10 @@ const DrawAssign = () => (
   <Frame title="Who does what, and when" wide>
     <div className="mock-gantt">
       {[
-        ['Phone OTP login', 'PA', 0, 55],
-        ['Welcome tour', 'PA', 55, 45],
-        ['Profile setup', 'PB', 0, 65],
-        ['Role permissions', 'PB', 65, 35],
+        ['Phone OTP login', 'TA', 0, 55],
+        ['Welcome tour', 'TA', 55, 45],
+        ['Profile setup', 'TB', 0, 65],
+        ['Role permissions', 'TB', 65, 35],
       ].map(([n, who, l, w]) => (
         <div key={n} className="g-row">
           <span className="g-name small">
@@ -443,12 +443,12 @@ const DrawImport = () => (
         </thead>
         <tbody>
           <tr>
-            {['Astute Group', 'Project A', 'Reports', 'small', '2026-10-12', '6', 'Weekly PDF', 'medium', 'person.d@…'].map((c, i) => (
+            {['Astute Group', 'Project A', 'Reports', 'small', '2026-10-12', '6', 'Weekly PDF', 'medium', 'teammate.d@…'].map((c, i) => (
               <td key={i}>{c}</td>
             ))}
           </tr>
           <tr>
-            {['Astute Group', 'Project A', 'Reports', 'small', '2026-10-12', '6', 'Excel export', 'small', 'person.d@…'].map((c, i) => (
+            {['Astute Group', 'Project A', 'Reports', 'small', '2026-10-12', '6', 'Excel export', 'small', 'teammate.d@…'].map((c, i) => (
               <td key={i}>{c}</td>
             ))}
           </tr>
@@ -467,7 +467,7 @@ const DrawReview = () => (
     <div className="mock-target due_today">
       <div className="gap8" style={{ justifyContent: 'space-between' }}>
         <strong>Welcome tour</strong>
-        <span className="tiny muted">Person A, 2 h ago</span>
+        <span className="tiny muted">Teammate A, 2 h ago</span>
       </div>
       <div className="quote mt8 small">Three welcome screens with skip and back, tested on Android and iPhone.</div>
       <div className="files">
@@ -483,7 +483,7 @@ const DrawReview = () => (
         <strong>Recurring jobs</strong>
         <Status s="proposed" />
       </div>
-      <div className="tiny muted">Proposed by Person C for Job scheduling</div>
+      <div className="tiny muted">Proposed by Teammate C for Job scheduling</div>
       <div className="gap8 mt8">
         <Btn primary>Accept as Medium</Btn>
         <Btn>Decline</Btn>
@@ -526,13 +526,13 @@ const DrawTeam = () => (
       </thead>
       <tbody>
         <tr>
-          <td>Person B</td>
+          <td>Teammate B</td>
           <td>2/3</td>
           <td className="ok">Submitted</td>
           <td>7</td>
         </tr>
         <tr>
-          <td>Person C</td>
+          <td>Teammate C</td>
           <td>0/4</td>
           <td className="muted">Not started</td>
           <td>0</td>
@@ -540,7 +540,7 @@ const DrawTeam = () => (
       </tbody>
     </table>
     <div className="mock-heat mt16">
-      <span className="small">Person D</span>
+      <span className="small">Teammate D</span>
       {[0, 1, 2, 3, 4, 2, 1, 0, 1, 2].map((l, i) => (
         <span key={i} className={`c l${l}`} />
       ))}
