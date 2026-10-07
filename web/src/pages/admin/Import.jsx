@@ -5,9 +5,9 @@ import { useAction, ErrorBox } from '../../ui.jsx';
 
 const COLUMNS = ['venture', 'project', 'module', 'module_size', 'module_start', 'module_days', 'feature', 'feature_size', 'assignees'];
 const SAMPLE = `venture,project,module,module_size,module_start,module_days,feature,feature_size,assignees
-Astute Group,Field Ops App,Login and onboarding,large,2026-10-12,10,Phone OTP login,large,riya@example.com
-Astute Group,Field Ops App,Login and onboarding,large,2026-10-12,10,Profile setup,medium,riya@example.com;arjun@example.com
-Astute Group,Field Ops App,Reports,small,2026-10-26,5,Weekly summary PDF,medium,
+Astute Group,Project name,Module name,large,2026-10-12,10,First feature,large,person@example.com
+Astute Group,Project name,Module name,large,2026-10-12,10,Second feature,medium,person@example.com;another.person@example.com
+Astute Group,Project name,Another module,small,2026-10-26,5,Third feature,medium,
 `;
 
 /** Small CSV parser: handles quoted fields, commas and newlines inside quotes. */

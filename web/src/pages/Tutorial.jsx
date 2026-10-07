@@ -28,11 +28,11 @@ const Arrow = () => <span className="mock-arrow" aria-hidden="true">→</span>;
 const DrawToday = () => (
   <Frame title="Today · Wed, 7 Oct">
     <div className="mock-bucket">Overdue</div>
-    <Target edge="overdue" name="Phone OTP login" where="Field Ops App / Login and onboarding" status="in_progress" size="large" />
+    <Target edge="overdue" name="Phone OTP login" where="Project A / Login and onboarding" status="in_progress" size="large" />
     <div className="mock-bucket">Due today</div>
-    <Target edge="due_today" name="Welcome tour" where="Field Ops App / Login and onboarding" status="not_started" size="small" />
+    <Target edge="due_today" name="Welcome tour" where="Project A / Login and onboarding" status="not_started" size="small" />
     <div className="mock-bucket">Added by your admin</div>
-    <Target edge="adhoc" name="Client call with Northwind at 4 PM" size={null} />
+    <Target edge="adhoc" name="Client call at 4 PM" size={null} />
   </Frame>
 );
 
@@ -57,7 +57,7 @@ const DrawGroups = () => (
 
 const DrawLog = () => (
   <Frame title="Log your day">
-    <Target edge="due_today" name="Welcome tour" where="Field Ops App / Login and onboarding" status="in_progress" size="small">
+    <Target edge="due_today" name="Welcome tour" where="Project A / Login and onboarding" status="in_progress" size="small">
       <div className="mock-logline">
         <Box h={44}>Built the three welcome screens and the skip button</Box>
         <Box>3 h</Box>
@@ -144,14 +144,14 @@ const DrawSubmit = () => (
 
 const DrawSentBack = () => (
   <Frame title="Sent back">
-    <Target edge="sent_back" name="Profile setup" where="Field Ops App / Login and onboarding" status="in_progress" size="medium">
+    <Target edge="sent_back" name="Profile setup" where="Project A / Login and onboarding" status="in_progress" size="medium">
       <div className="mock-why">Admin's note: Photo upload fails on slow networks. Add a retry and a progress bar.</div>
     </Target>
   </Frame>
 );
 
 const DrawPlan = () => (
-  <Frame title="Field Ops App">
+  <Frame title="Project A">
     <div className="gap8 small" style={{ justifyContent: 'space-between' }}>
       <span>2 of 9 features done, 1 in review</span>
       <strong>On track</strong>
@@ -207,9 +207,9 @@ const DrawPropose = () => (
 const DrawTalk = () => (
   <Frame title="Comments and notifications">
     <div className="mock-comment">
-      <Avatar name="Riya Sharma" />
+      <Avatar name="Person A" />
       <div>
-        <strong className="small">Riya Sharma</strong>
+        <strong className="small">Person A</strong>
         <div className="small">The API returns dates in UTC. Should the app show IST?</div>
       </div>
     </div>
@@ -307,14 +307,14 @@ const DrawCommand = () => (
     </div>
     <div className="mock-flag red">
       <span className="sev red">Overdue</span> <strong className="small">Calendar view is 1 working day late</strong>
-      <div className="tiny muted">Field Ops App / Job scheduling. Owner: Neha Verma.</div>
+      <div className="tiny muted">Project A / Job scheduling. Owner: Person C.</div>
     </div>
     <div className="mock-flag amber">
       <span className="sev amber">Stalled</span> <strong className="small">No work logged on Blog posts for 3 working days</strong>
     </div>
     <div className="mt8">
       <div className="gap8 small" style={{ justifyContent: 'space-between' }}>
-        <strong>Website relaunch</strong>
+        <strong>Project B</strong>
         <span className="healthword red">Behind</span>
       </div>
       <PlanLine done={10} review={8} expected={33} />
@@ -349,9 +349,9 @@ const DrawVenture = () => (
 const DrawPeople = () => (
   <Frame title="Add a person">
     <div className="mock-label">Name</div>
-    <Box>Riya Sharma</Box>
+    <Box>Person A</Box>
     <div className="mock-label">Work email</div>
-    <Box>riya@astutegroup.in</Box>
+    <Box>person.a@example.com</Box>
     <div className="mock-label">Role</div>
     <div className="seg">
       <button type="button" className="on">
@@ -374,7 +374,7 @@ const DrawTree = () => (
       </div>
       <div className="node p">
         <span className="tiny muted">Project</span>
-        <strong>Field Ops App</strong>
+        <strong>Project A</strong>
       </div>
       <div className="node m">
         <span className="tiny muted">Module · size, start, working days</span>
@@ -403,10 +403,10 @@ const DrawAssign = () => (
   <Frame title="Who does what, and when" wide>
     <div className="mock-gantt">
       {[
-        ['Phone OTP login', 'RS', 0, 55],
-        ['Welcome tour', 'RS', 55, 45],
-        ['Profile setup', 'AM', 0, 65],
-        ['Role permissions', 'AM', 65, 35],
+        ['Phone OTP login', 'PA', 0, 55],
+        ['Welcome tour', 'PA', 55, 45],
+        ['Profile setup', 'PB', 0, 65],
+        ['Role permissions', 'PB', 65, 35],
       ].map(([n, who, l, w]) => (
         <div key={n} className="g-row">
           <span className="g-name small">
@@ -443,12 +443,12 @@ const DrawImport = () => (
         </thead>
         <tbody>
           <tr>
-            {['Astute Group', 'Field Ops App', 'Reports', 'small', '2026-10-12', '6', 'Weekly PDF', 'medium', 'karan@…'].map((c, i) => (
+            {['Astute Group', 'Project A', 'Reports', 'small', '2026-10-12', '6', 'Weekly PDF', 'medium', 'person.d@…'].map((c, i) => (
               <td key={i}>{c}</td>
             ))}
           </tr>
           <tr>
-            {['Astute Group', 'Field Ops App', 'Reports', 'small', '2026-10-12', '6', 'Excel export', 'small', 'karan@…'].map((c, i) => (
+            {['Astute Group', 'Project A', 'Reports', 'small', '2026-10-12', '6', 'Excel export', 'small', 'person.d@…'].map((c, i) => (
               <td key={i}>{c}</td>
             ))}
           </tr>
@@ -467,7 +467,7 @@ const DrawReview = () => (
     <div className="mock-target due_today">
       <div className="gap8" style={{ justifyContent: 'space-between' }}>
         <strong>Welcome tour</strong>
-        <span className="tiny muted">Riya Sharma, 2 h ago</span>
+        <span className="tiny muted">Person A, 2 h ago</span>
       </div>
       <div className="quote mt8 small">Three welcome screens with skip and back, tested on Android and iPhone.</div>
       <div className="files">
@@ -483,7 +483,7 @@ const DrawReview = () => (
         <strong>Recurring jobs</strong>
         <Status s="proposed" />
       </div>
-      <div className="tiny muted">Proposed by Neha Verma for Job scheduling</div>
+      <div className="tiny muted">Proposed by Person C for Job scheduling</div>
       <div className="gap8 mt8">
         <Btn primary>Accept as Medium</Btn>
         <Btn>Decline</Btn>
@@ -526,13 +526,13 @@ const DrawTeam = () => (
       </thead>
       <tbody>
         <tr>
-          <td>Arjun Mehta</td>
+          <td>Person B</td>
           <td>2/3</td>
           <td className="ok">Submitted</td>
           <td>7</td>
         </tr>
         <tr>
-          <td>Neha Verma</td>
+          <td>Person C</td>
           <td>0/4</td>
           <td className="muted">Not started</td>
           <td>0</td>
@@ -540,7 +540,7 @@ const DrawTeam = () => (
       </tbody>
     </table>
     <div className="mock-heat mt16">
-      <span className="small">Karan</span>
+      <span className="small">Person D</span>
       {[0, 1, 2, 3, 4, 2, 1, 0, 1, 2].map((l, i) => (
         <span key={i} className={`c l${l}`} />
       ))}
