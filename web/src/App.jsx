@@ -21,8 +21,10 @@ import Users from './pages/admin/Users.jsx';
 import Ventures from './pages/admin/Ventures.jsx';
 import Import from './pages/admin/Import.jsx';
 import Flags from './pages/admin/Flags.jsx';
+import Tutorial from './pages/Tutorial.jsx';
+import { api } from './api.js';
 
-function Rail({ open, onNavigate }) {
+function Rail({ open, onNavigate, onTour }) {
   const { user, isAdmin, unread, logout } = useAuth();
   const counts = useApi(isAdmin ? '/admin/overview' : null, [useLocation().pathname]);
   const c = counts.data?.counts;
@@ -71,6 +73,17 @@ function Rail({ open, onNavigate }) {
         <L to="/notifications" n={unread} icon="bell">
           Notifications
         </L>
+        <button
+          type="button"
+          className="navlink"
+          onClick={() => {
+            onNavigate();
+            onTour();
+          }}
+        >
+          <Icon name="help" />
+          <span>How it works</span>
+        </button>
       </nav>
       <div className="me">
         <div className="person">
@@ -94,18 +107,32 @@ function Rail({ open, onNavigate }) {
 }
 
 export default function App() {
-  const { user, ready, isAdmin } = useAuth();
+  const { user, ready, isAdmin, refresh } = useAuth();
   const [open, setOpen] = useState(false);
+  const [tour, setTour] = useState(false);
   const loc = useLocation();
   useEffect(() => setOpen(false), [loc.pathname]);
   useEffect(() => window.scrollTo(0, 0), [loc.pathname]);
 
   if (!ready) return <Loading />;
   if (!user) return <Login />;
+  // First sign-in: the walkthrough comes before anything else.
+  if (user.tutorial_done === false)
+    return (
+      <Tutorial
+        role={isAdmin ? 'admin' : 'workforce'}
+        required
+        onFinish={async () => {
+          await api.post('/me/tutorial');
+          await refresh();
+        }}
+      />
+    );
 
   return (
     <div className="shell">
-      <Rail open={open} onNavigate={() => setOpen(false)} />
+      <Rail open={open} onNavigate={() => setOpen(false)} onTour={() => setTour(true)} />
+      {tour && <Tutorial role={isAdmin ? 'admin' : 'workforce'} onClose={() => setTour(false)} />}
       {open && <div style={{ position: 'fixed', inset: 0, zIndex: 35 }} onClick={() => setOpen(false)} />}
       <div style={{ minWidth: 0 }}>
         <header className="topbar">

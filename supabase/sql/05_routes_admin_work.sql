@@ -657,6 +657,15 @@ end $$;
 
 create or replace function app.r_me(me app.users) returns jsonb
 language sql stable as $$
-  select jsonb_build_object('user', app.public_user(me),
+  select jsonb_build_object('user', app.public_user(me) || jsonb_build_object('tutorial_done', me.tutorial_done_at is not null),
     'unread', (select count(*) from app.notifications where user_id = me.id and read_at is null))
 $$;
+
+-- The first-login walkthrough was finished (or replayed): remember it.
+create or replace function app.r_tutorial_done(me app.users) returns jsonb
+language plpgsql as $$
+declare u app.users;
+begin
+  update app.users set tutorial_done_at = coalesce(tutorial_done_at, now()) where id = me.id returning * into u;
+  return app.r_me(u);
+end $$;

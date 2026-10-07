@@ -40,6 +40,7 @@ begin
   begin
     -- people and the signed-in user
     if m = 'GET' and p = '/me' then return app.r_me(me);
+    elsif m = 'POST' and p = '/me/tutorial' then return app.r_tutorial_done(me);
     elsif m = 'GET' and p = '/users' then return app.r_users(me);
     elsif m = 'POST' and p = '/users' then return app.r_user_create(me, body);
     elsif m = 'PATCH' and p ~ '^/users/\d+$' then return app.r_user_update(me, id, body);
