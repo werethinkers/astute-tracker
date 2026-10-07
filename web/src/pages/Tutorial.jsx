@@ -457,7 +457,7 @@ const DrawImport = () => (
     </div>
     <div className="mock-flow mt16 small">
       <Btn>Download template</Btn>
-      <Arrow /> fill it in <Arrow /> <Btn>Preview</Btn> <Arrow /> <Btn primary>Import</Btn>
+      <Arrow /> fill it in <Arrow /> <Btn>Check file</Btn> <Arrow /> <Btn primary>Import</Btn>
     </div>
   </Frame>
 );
@@ -803,7 +803,7 @@ const ADMIN = [
         <p>
           Have a plan already? On <strong>Import</strong>, download the template, fill one row per feature, and upload it.
         </p>
-        <p>You see a preview and any mistakes before anything is saved.</p>
+        <p><strong>Check file</strong> shows what will be created and any mistakes, before anything is saved.</p>
       </>
     ),
   },
