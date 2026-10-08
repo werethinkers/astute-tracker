@@ -181,7 +181,7 @@ const DrawPlan = () => (
 );
 
 const DrawPropose = () => (
-  <Frame title="Add a feature to Job scheduling">
+  <Frame title="Suggest a feature for Job scheduling">
     <div className="mock-label">Feature name</div>
     <Box>Recurring jobs</Box>
     <div className="mock-label">Size</div>
@@ -200,6 +200,50 @@ const DrawPropose = () => (
       <span className="tiny muted">admin accepts and sets the size</span>
       <Arrow />
       <Status s="not_started" />
+    </div>
+  </Frame>
+);
+
+const DrawAddModule = () => (
+  <Frame title="Project A">
+    <div className="mock-row">
+      <span className="gap8 small">
+        <Size s="medium" /> <strong>Job scheduling</strong>
+        <span className="tiny muted">Teammate C · due Wed, 14 Oct</span>
+      </span>
+      <Btn primary>Join module</Btn>
+    </div>
+    <div className="mock-row">
+      <span className="gap8 small">
+        <Size s="large" /> <strong>Offline mode</strong> <span className="tag">Added by you</span>
+      </span>
+      <span className="gap8">
+        <Btn>Add feature</Btn>
+        <Btn>Assign people</Btn>
+      </span>
+    </div>
+    <div className="mock-label">New module</div>
+    <div className="mock-two">
+      <div>
+        <div className="mock-label">Starts on</div>
+        <Box>Mon, 12 Oct</Box>
+      </div>
+      <div>
+        <div className="mock-label">Deadline</div>
+        <Box>Fri, 23 Oct</Box>
+      </div>
+    </div>
+    <div className="mock-label">Features</div>
+    <div className="gap8 small mb8">
+      <Size s="large" /> Save jobs without signal
+    </div>
+    <div className="gap8 small">
+      <Size s="small" /> Sync when back online
+    </div>
+    <div className="mock-label">Who works on it</div>
+    <div className="gap8 small">
+      <span className="avatar sm">TA</span> You
+      <span className="avatar sm">TB</span> Teammate B
     </div>
   </Frame>
 );
@@ -671,9 +715,26 @@ const TEAM = [
     body: (
       <>
         <p>
-          <strong>My work</strong> lists everything assigned to you, with dates. <strong>Projects</strong> shows the projects you are on.
+          <strong>My work</strong> lists everything you are on, with dates. <strong>Projects</strong> shows every venture and project, with all their modules
+          and features, so you can see what is already planned.
         </p>
         <p>The bar shows approved work in black, work in review striped, and an amber marker where the plan says the project should be today.</p>
+      </>
+    ),
+  },
+  {
+    title: 'Add a module, or join one',
+    draw: <DrawAddModule />,
+    body: (
+      <>
+        <p>
+          Starting something new? Open the project and press <strong>Add a module</strong>. List its features with sizes, set a start date and a deadline, and
+          tick anyone else who works on it. You are on it automatically, and your admin is told. No approval is needed.
+        </p>
+        <p>
+          Someone already doing it? Press <strong>Join module</strong>, or <strong>Join</strong> beside a feature, to show your part. You can leave work you joined
+          yourself. Once a deadline is set, only an admin can change the dates.
+        </p>
       </>
     ),
   },
@@ -682,8 +743,14 @@ const TEAM = [
     draw: <DrawPropose />,
     body: (
       <>
-        <p>Found something a module needs that isn't listed? In <strong>My work</strong>, press <strong>Add a feature</strong> beside the module, and give it a size and a reason.</p>
-        <p>You can start on it straight away. It counts toward progress once your admin accepts it.</p>
+        <p>
+          Found something a module needs that isn't listed? Press <strong>Suggest a feature</strong> beside the module, in My work or on the project page, and give it
+          a size and a reason.
+        </p>
+        <p>
+          You can start on it straight away. It counts toward progress once your admin accepts it. On a module you added yourself, use <strong>Add feature</strong>{' '}
+          instead: it counts straight away.
+        </p>
       </>
     ),
   },
@@ -704,7 +771,14 @@ const TEAM = [
     title: "You're ready",
     draw: (
       <DrawReady
-        items={['Check Today every morning', 'Log what you did, with hours', 'Submit your day before you leave', 'Mark finished work as done, with proof', 'Say when you are blocked']}
+        items={[
+          'Check Today every morning',
+          'Log what you did, with hours',
+          'Submit your day before you leave',
+          'Mark finished work as done, with proof',
+          'Say when you are blocked',
+          'Add or join modules for your own work',
+        ]}
       />
     ),
     body: (
@@ -782,6 +856,9 @@ const ADMIN = [
           list of features.
         </p>
         <p>Every feature also has a size. Sizes decide how much each piece counts toward progress.</p>
+        <p>
+          The team can add modules too, and join any module or feature. You get a notification each time, and once a deadline is set only admins can change dates.
+        </p>
       </>
     ),
   },

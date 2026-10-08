@@ -2,10 +2,14 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi, Loading, ErrorBox, Status, Size, fmtDate, Empty, PlanLine, fmtWhen } from '../ui.jsx';
 import { ProposeModal } from './workActions.jsx';
+import { FeatureForm } from './adminForms.jsx';
+import { useAuth } from '../auth.jsx';
 
 export default function MyWork() {
   const { data, loading, error, reload } = useApi('/me/work');
+  const { user } = useAuth();
   const [propose, setPropose] = useState(null);
+  const [addTo, setAddTo] = useState(null);
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox error={error} />;
   const byProject = new Map();
@@ -28,7 +32,9 @@ export default function MyWork() {
         <div className="stack">
           {!data.open.length && (
             <div className="panel">
-              <Empty title="Nothing open">When an admin assigns you a module or feature it appears here.</Empty>
+              <Empty title="Nothing open">
+                Work you are put on appears here. To start something of your own, open <Link to="/projects">Projects</Link> and add a module.
+              </Empty>
             </div>
           )}
           {[...byProject.entries()].map(([pid, p]) => (
@@ -96,11 +102,16 @@ export default function MyWork() {
                         {m.project_name}. Due {fmtDate(m.end_date)}
                       </div>
                     </div>
-                    {!['done', 'cancelled', 'on_hold'].includes(m.status) && (
-                      <button className="btn sm" onClick={() => setPropose(m)}>
-                        Add a feature
-                      </button>
-                    )}
+                    {!['done', 'cancelled', 'on_hold'].includes(m.status) &&
+                      (m.can_manage ? (
+                        <button className="btn sm" onClick={() => setAddTo(m)}>
+                          Add feature
+                        </button>
+                      ) : (
+                        <button className="btn sm" onClick={() => setPropose(m)}>
+                          Suggest a feature
+                        </button>
+                      ))}
                   </div>
                   <div className="mt8">
                     <PlanLine done={m.progress_pct} thin />
@@ -147,6 +158,7 @@ export default function MyWork() {
         </div>
       </div>
       {propose && <ProposeModal module={propose} onClose={() => setPropose(null)} onDone={reload} />}
+      {addTo && <FeatureForm module={addTo} me={user} onClose={() => setAddTo(null)} onDone={reload} />}
     </>
   );
 }

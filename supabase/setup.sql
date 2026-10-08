@@ -558,13 +558,23 @@ language sql stable as $$
   select exists (select 1 from app.assignments where work_item_id = item and user_id = uid)
 $$;
 
+-- Who may plan a module and its features: admins, and the team member who added that module.
+create or replace function app.can_manage(uid bigint, admin boolean, item bigint) returns boolean
+language sql stable as $$
+  select admin or exists (
+    select 1 from app.work_items w
+    join app.work_items m on m.id = case when w.level = 'module' then w.id else w.parent_id end
+    join app.users u on u.id = uid and u.active
+    where w.id = item and m.origin = 'workforce' and m.created_by = uid)
+$$;
+
 create or replace function app.can_see(uid bigint, admin boolean, item bigint) returns boolean
 language plpgsql stable as $$
 declare it app.work_items;
 begin
   select * into it from app.work_items where id = item;
   if it.id is null then return false; end if;
-  if admin then return true; end if;
+  if admin or app.can_manage(uid, false, item) then return true; end if;
   if it.level = 'module' then
     if app.is_assigned(uid, it.id) then return true; end if;
     return exists (select 1 from app.assignments a join app.work_items f on f.id = a.work_item_id
@@ -582,12 +592,28 @@ begin
   return uid = any(app.effective_assignees(item)) or app.is_assigned(uid, par);
 end $$;
 
+-- Admins see every project. The team sees every project that is not cancelled, plus any cancelled one they had work in.
 create or replace function app.visible_project_ids(uid bigint, admin boolean) returns bigint[]
 language sql stable as $$
   select case when admin then coalesce(array(select id from app.projects order by id), '{}')
-  else coalesce(array(select distinct w.project_id from app.assignments a join app.work_items w on w.id = a.work_item_id
-                      where a.user_id = uid), '{}') end
+  else coalesce(array(select p.id from app.projects p
+                      where p.status <> 'cancelled'
+                         or exists (select 1 from app.assignments a join app.work_items w on w.id = a.work_item_id
+                                    where a.user_id = uid and w.project_id = p.id)
+                      order by p.id), '{}') end
 $$;
+
+-- Working days from start to a deadline (both inclusive), for modules planned by end date.
+create or replace function app.days_to_deadline(st date, deadline date, cid bigint) returns int
+language plpgsql stable as $$
+declare n int;
+begin
+  if deadline < st then perform app.fail(400, 'The deadline must be on or after the start date.'); end if;
+  n := app.wd_between(st, deadline, cid);
+  if n < 1 then perform app.fail(400, 'There are no working days between the start date and the deadline. Pick another deadline.'); end if;
+  if n > 730 then perform app.fail(400, 'A module can run for at most 730 working days.'); end if;
+  return n;
+end $$;
 
 -- Why a module cannot be assigned yet, or null when it is ready.
 create or replace function app.module_not_ready(mid bigint) returns text
@@ -1330,7 +1356,8 @@ begin
   base := jsonb_build_object(
     'id', p.id, 'name', p.name, 'description', p.description, 'status', p.status, 'company_id', p.company_id, 'company_name', cname,
     'target_end_date', p.target_end_date, 'show_progress_to_workforce', p.show_progress_to_workforce, 'auto_approve', p.auto_approve,
-    'modules', modules, 'features', features, 'features_done', done);
+    'modules', modules, 'features', features, 'features_done', done,
+    'can_add_module', admin or p.status = 'active');
   if admin then
     select count(*), count(*) filter (where severity = 'red') into fl_n, fl_red from app.flags where cleared_at is null and project_id = pid;
     select count(distinct a.user_id) into people from app.assignments a join app.work_items w on w.id = a.work_item_id where w.project_id = pid;
@@ -1346,6 +1373,8 @@ begin
   return base || jsonb_build_object(
     'progress_pct', case when p.show_progress_to_workforce then to_jsonb(p.progress_pct) else 'null'::jsonb end,
     'my_open_features', mine,
+    'on_project', exists (select 1 from app.assignments a join app.work_items w on w.id = a.work_item_id
+                          where a.user_id = me.id and w.project_id = pid),
     'end_date', (select max(end_date) from app.work_items where project_id = pid and level = 'module' and status <> 'cancelled'));
 end $$;
 
@@ -1355,7 +1384,8 @@ declare ids bigint[] := app.visible_project_ids(me.id, me.role = 'admin');
 begin
   return jsonb_build_object('projects', coalesce((
     select jsonb_agg(app.project_summary(p.id, me) order by c.name, p.name)
-    from app.projects p join app.companies c on c.id = p.company_id where p.id = any(ids)), '[]'));
+    from app.projects p join app.companies c on c.id = p.company_id where p.id = any(ids)), '[]'),
+    'ventures', coalesce((select jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name) order by c.name) from app.companies c), '[]'));
 end $$;
 
 create or replace function app.project_fields(body jsonb, partial boolean) returns jsonb
@@ -1423,14 +1453,16 @@ end $$;
 create or replace function app.r_project(me app.users, pid bigint) returns jsonb
 language plpgsql as $$
 declare
-  admin boolean := me.role = 'admin'; m app.work_items; on_module boolean; feats jsonb; base jsonb; modules jsonb := '[]';
-  out_ jsonb;
+  admin boolean := me.role = 'admin'; m app.work_items; on_module boolean; manage boolean; feats jsonb; base jsonb; modules jsonb := '[]';
+  out_ jsonb; show_pct boolean;
 begin
   if not exists (select 1 from app.projects where id = pid) then perform app.fail(404, 'Project not found.'); end if;
   if not admin and not (pid = any(app.visible_project_ids(me.id, false))) then perform app.fail(404, 'Project not found.'); end if;
+  select admin or show_progress_to_workforce into show_pct from app.projects where id = pid;
 
   for m in select * from app.work_items where project_id = pid and level = 'module' order by sequence, start_date nulls first, id loop
     on_module := admin or app.is_assigned(me.id, m.id);
+    manage := app.can_manage(me.id, admin, m.id);
     select coalesce(jsonb_agg(jsonb_build_object(
         'id', f.id, 'name', f.name, 'description', f.description, 'size', f.size, 'weight', f.weight, 'status', f.status,
         'origin', f.origin, 'requires_proof', f.requires_proof, 'sent_back', f.sent_back,
@@ -1439,7 +1471,10 @@ begin
         'assignees', (select coalesce(jsonb_agg(jsonb_build_object('id', u.id, 'name', u.name, 'is_lead', a.is_lead, 'active', u.active) order by a.is_lead desc, a.user_id), '[]')
                       from app.assignments a join app.users u on u.id = a.user_id where a.work_item_id = f.id),
         'effective', (select coalesce(jsonb_agg(u.name order by u.id), '[]') from app.users u where u.id = any(app.effective_assignees(f.id))),
-        'last_log', (select max(l.date) from app.log_entries e join app.daily_logs l on l.id = e.log_id where e.work_item_id = f.id))
+        'last_log', (select max(l.date) from app.log_entries e join app.daily_logs l on l.id = e.log_id where e.work_item_id = f.id),
+        'can_open', on_module or manage or app.is_assigned(me.id, f.id),
+        'mine', me.id = any(app.effective_assignees(f.id)),
+        'self_joined', exists (select 1 from app.assignments a where a.work_item_id = f.id and a.user_id = me.id and a.assigned_by = me.id))
         || case when admin then jsonb_build_object(
              'flags', (select coalesce(jsonb_agg(jsonb_build_object('id', x.id, 'type', x.flag_type, 'severity', x.severity, 'title', x.title) order by x.id), '[]')
                        from app.flags x where x.cleared_at is null and x.project_id = pid and x.entity_type = 'feature' and x.entity_id = f.id),
@@ -1448,22 +1483,22 @@ begin
         order by f.sequence, f.planned_start nulls first, f.id), '[]')
       into feats
     from app.work_items f
-    where f.project_id = pid and f.level = 'feature' and f.parent_id = m.id
-      and (on_module or app.is_assigned(me.id, f.id));
-    continue when not on_module and jsonb_array_length(feats) = 0;
+    where f.project_id = pid and f.level = 'feature' and f.parent_id = m.id;
     base := jsonb_build_object(
       'id', m.id, 'name', m.name, 'description', m.description, 'size', m.size, 'weight', m.weight, 'status', m.status,
       'status_reason', m.status_reason, 'start_date', m.start_date, 'duration_days', m.duration_days, 'end_date', m.end_date,
       'original_end_date', m.original_end_date,
       'assignees', (select coalesce(jsonb_agg(jsonb_build_object('id', u.id, 'name', u.name, 'is_lead', a.is_lead, 'active', u.active) order by a.is_lead desc, a.user_id), '[]')
                     from app.assignments a join app.users u on u.id = a.user_id where a.work_item_id = m.id),
-      'features', feats, 'limited', not on_module);
+      'features', feats, 'limited', false, 'origin', m.origin, 'on_team', app.is_assigned(me.id, m.id), 'can_manage', manage,
+      'self_joined', exists (select 1 from app.assignments a where a.work_item_id = m.id and a.user_id = me.id and a.assigned_by = me.id),
+      'added_by', case when m.origin = 'workforce' then (select name from app.users where id = m.created_by) end);
     if admin then
       base := base || jsonb_build_object('progress_pct', m.progress_pct, 'pending_pct', m.pending_pct)
         || app.schedule_facts('module', m.id)
         || jsonb_build_object('flags', (select coalesce(jsonb_agg(jsonb_build_object('id', x.id, 'type', x.flag_type, 'severity', x.severity, 'title', x.title) order by x.id), '[]')
                                         from app.flags x where x.cleared_at is null and x.project_id = pid and x.entity_type = 'module' and x.entity_id = m.id));
-    elsif on_module then
+    elsif on_module or show_pct then
       base := base || jsonb_build_object('progress_pct', m.progress_pct, 'pending_pct', m.pending_pct);
     end if;
     modules := modules || jsonb_build_array(base);
@@ -1536,71 +1571,139 @@ begin
     'removed', to_jsonb(array(select x from unnest(v_before) x where not (x = any(clean)))));
 end $$;
 
+-- Names already used in a project (modules) or a module (features), ignoring case and spacing. Cancelled work does not count.
+create or replace function app.name_taken(p_project bigint, p_module bigint, nm text) returns text
+language sql stable as $$
+  select w.name from app.work_items w
+  where w.project_id = p_project and w.status <> 'cancelled'
+    and case when p_module is null then w.level = 'module' else w.level = 'feature' and w.parent_id = p_module end
+    and lower(regexp_replace(trim(w.name), '\s+', ' ', 'g')) = lower(regexp_replace(trim(nm), '\s+', ' ', 'g'))
+  limit 1
+$$;
+
+create or replace function app.check_feature_names(p_project bigint, p_module bigint, names text[]) returns void
+language plpgsql as $$
+declare nm text; seen text[] := '{}'; k text; taken text;
+begin
+  foreach nm in array names loop
+    k := lower(regexp_replace(trim(nm), '\s+', ' ', 'g'));
+    if k = any(seen) then perform app.fail(400, 'The feature "' || trim(nm) || '" is listed twice.'); end if;
+    seen := seen || k;
+    if p_module is not null then
+      taken := app.name_taken(p_project, p_module, nm);
+      if taken is not null then
+        perform app.fail(409, 'This module already has a feature called "' || taken || '". Join it instead of adding it again.');
+      end if;
+    end if;
+  end loop;
+end $$;
+
+-- A module's length: working days, or a deadline the working days are counted up to.
+create or replace function app.module_days(body jsonb, st date, cid bigint, required boolean default true) returns int
+language plpgsql as $$
+begin
+  if app.jtext(body->'end_date') is not null and app.jtext(body->'duration_days') is null then
+    return app.days_to_deadline(st, app.v_date(body->'end_date', 'Deadline', true), cid);
+  end if;
+  return app.v_int(body->'duration_days', 'Duration', 1, 730, required);
+end $$;
+
+-- Admins add modules to any project. Anyone on the team can add one to an active project:
+-- they are always on it (and lead it unless they pick someone else), and they can plan it afterwards.
 create or replace function app.r_module_create(me app.users, pid bigint, body jsonb) returns jsonb
 language plpgsql as $$
-declare p app.projects; nm text; sz text; st date; days int; feats jsonb; f jsonb; mid bigint; seq int; res jsonb;
+declare p app.projects; admin boolean := me.role = 'admin'; nm text; sz text; st date; days int; feats jsonb; f jsonb;
+  mid bigint; seq int; res jsonb; ids jsonb; lead jsonb; v_end date;
 begin
-  perform app.require_admin(me);
   select * into p from app.projects where id = pid;
-  if p.id is null then perform app.fail(404, 'Project not found.'); end if;
+  if p.id is null or not (pid = any(app.visible_project_ids(me.id, admin))) then perform app.fail(404, 'Project not found.'); end if;
+  if not admin and p.status <> 'active' then perform app.fail(400, 'Modules can only be added to active projects.'); end if;
   nm := app.v_str(body->'name', 200, true, 'Module name');
   sz := app.v_size(app.jtext(body->'size'), 'Module size');
   st := app.v_date(body->'start_date', 'Start date', true);
-  days := app.v_int(body->'duration_days', 'Duration', 1, 730, true);
+  days := app.module_days(body, st, p.company_id);
   select coalesce(jsonb_agg(x), '[]') into feats
   from jsonb_array_elements(case when jsonb_typeof(body->'features') = 'array' then body->'features' else '[]'::jsonb end) x
   where jsonb_typeof(x) = 'object' and app.trim_ws(app.jtext(x->'name')) <> '';
   if jsonb_array_length(feats) = 0 then
     perform app.fail(400, 'List the features this module contains. Every module needs at least one.');
   end if;
+  if app.name_taken(pid, null, nm) is not null then
+    perform app.fail(409, 'This project already has a module called "' || app.name_taken(pid, null, nm) || '". Open it and press Join instead of adding it again.');
+  end if;
+  perform app.check_feature_names(pid, null, array(select x->>'name' from jsonb_array_elements(feats) x));
   select coalesce(max(sequence), 0) + 1 into seq from app.work_items where project_id = pid and level = 'module';
-  insert into app.work_items (project_id, level, name, description, size, weight, sequence, start_date, duration_days, created_by)
-  values (pid, 'module', nm, app.v_str(body->'description', 4000), sz, app.weight_for(p.company_id, sz), seq, st, days, me.id)
+  insert into app.work_items (project_id, level, name, description, size, weight, sequence, start_date, duration_days, origin, created_by)
+  values (pid, 'module', nm, app.v_str(body->'description', 4000), sz, app.weight_for(p.company_id, sz), seq, st, days,
+          case when admin then 'admin' else 'workforce' end, me.id)
   returning id into mid;
+  -- Features listed with the module are its planned scope, whoever plans it.
   for f in select * from jsonb_array_elements(feats) loop
     perform app.insert_feature(pid, mid, p.company_id, f, 'admin', 'not_started', me.id);
   end loop;
-  if jsonb_typeof(body->'assignee_ids') = 'array' and jsonb_array_length(body->'assignee_ids') > 0 then
-    res := app.set_assignees(mid, body->'assignee_ids', body->'lead_id', me.id);
-    perform app.notify(array(select jsonb_array_elements_text(res->'added')::bigint), 'assigned',
-      'You were assigned to module ' || nm, p.name, '/projects/' || pid);
+  ids := case when jsonb_typeof(body->'assignee_ids') = 'array' then body->'assignee_ids' else '[]'::jsonb end;
+  lead := body->'lead_id';
+  if not admin then
+    ids := ids || to_jsonb(me.id);
+    if lead is null or jsonb_typeof(lead) = 'null' then lead := to_jsonb(me.id); end if;
+  end if;
+  if jsonb_array_length(ids) > 0 then
+    res := app.set_assignees(mid, ids, lead, me.id);
+    perform app.notify(array(select x::bigint from jsonb_array_elements_text(res->'added') x where x::bigint <> me.id), 'assigned',
+      'You were assigned to module ' || nm, p.name || case when admin then '' else ', added by ' || me.name end, '/projects/' || pid);
   end if;
   perform app.audit(pid, 'module', mid, 'created',
-    nm || ' (' || sz || ', ' || days || ' working days from ' || st || ', ' || jsonb_array_length(feats) || ' features)', me.id);
+    nm || ' (' || sz || ', ' || days || ' working days from ' || st || ', ' || jsonb_array_length(feats) || ' features)'
+    || case when admin then '' else ', added by the team' end, me.id);
   perform app.after(pid);
+  if not admin then
+    v_end := app.add_wd(st, days, p.company_id);
+    perform app.notify(app.admin_ids(), 'module_added', me.name || ' added module ' || nm,
+      p.name || ': ' || jsonb_array_length(feats) || ' feature' || case when jsonb_array_length(feats) = 1 then '' else 's' end
+      || ', due ' || app.fd(v_end) || '. People: ' || app.user_names(app.assignee_ids(mid)) || '.', '/projects/' || pid);
+  end if;
   return jsonb_build_object('module', jsonb_build_object('id', mid));
 end $$;
 
 create or replace function app.r_feature_create(me app.users, mid bigint, body jsonb) returns jsonb
 language plpgsql as $$
-declare m app.work_items; fid bigint; why text;
+declare m app.work_items; fid bigint; why text; res jsonb;
 begin
-  perform app.require_admin(me);
   select * into m from app.work_items where id = mid;
   if m.id is null or m.level <> 'module' then perform app.fail(404, 'Module not found.'); end if;
+  if not app.can_manage(me.id, me.role = 'admin', mid) then
+    perform app.fail(403, 'Only admins and the person who added this module can add features to it directly. Use Add a feature to suggest one.');
+  end if;
+  if me.role <> 'admin' and m.status in ('done','cancelled') then perform app.fail(400, 'This module is closed.'); end if;
+  perform app.check_feature_names(m.project_id, m.id, array[coalesce(app.jtext(body->'name'), '')]);
   fid := app.insert_feature(m.project_id, m.id, app.company_of_project(m.project_id), body, 'admin', 'not_started', me.id);
   if jsonb_typeof(body->'assignee_ids') = 'array' and jsonb_array_length(body->'assignee_ids') > 0 then
     why := app.module_not_ready(m.id);
     if why is not null and m.start_date is null then perform app.fail(400, why); end if;
-    perform app.set_assignees(fid, body->'assignee_ids', body->'lead_id', me.id);
+    res := app.set_assignees(fid, body->'assignee_ids', body->'lead_id', me.id);
+    perform app.notify(array(select x::bigint from jsonb_array_elements_text(res->'added') x where x::bigint <> me.id), 'assigned',
+      'You were assigned to feature ' || coalesce(app.jtext(body->'name'), ''), 'Module ' || m.name, '/items/' || fid);
   end if;
   perform app.audit(m.project_id, 'feature', fid, 'created', coalesce(app.jtext(body->'name'), '') || ' in ' || m.name, me.id);
   perform app.after(m.project_id);
   return jsonb_build_object('feature', jsonb_build_object('id', fid));
 end $$;
 
--- Workforce (or admin) proposes an extra feature for a module they work on.
+-- Anyone on the team proposes an extra feature for any open module; it is theirs to work on, and counts once an admin accepts it.
 create or replace function app.r_feature_propose(me app.users, mid bigint, body jsonb) returns jsonb
 language plpgsql as $$
 declare m app.work_items; reason text; fid bigint;
 begin
   select * into m from app.work_items where id = mid;
-  if m.id is null or m.level <> 'module' then perform app.fail(404, 'Module not found.'); end if;
-  if me.role <> 'admin' and not app.is_assigned(me.id, m.id) then
-    perform app.fail(403, 'Only people assigned to this module can add features to it.');
+  if m.id is null or m.level <> 'module' or not (m.project_id = any(app.visible_project_ids(me.id, me.role = 'admin'))) then
+    perform app.fail(404, 'Module not found.');
   end if;
-  if m.status in ('done','cancelled') then perform app.fail(400, 'This module is closed.'); end if;
+  if m.status in ('done','cancelled','on_hold') then perform app.fail(400, 'This module is closed.'); end if;
+  if me.role <> 'admin' and (select status from app.projects where id = m.project_id) <> 'active' then
+    perform app.fail(400, 'This project is not active.');
+  end if;
   reason := app.v_str(body->'reason', 2000, true, 'Why it is needed');
+  perform app.check_feature_names(m.project_id, m.id, array[coalesce(app.jtext(body->'name'), '')]);
   fid := app.insert_feature(m.project_id, m.id, app.company_of_project(m.project_id), body, 'workforce', 'proposed', me.id, reason);
   insert into app.assignments (work_item_id, user_id, is_lead, assigned_by) values (fid, me.id, true, me.id);
   perform app.audit(m.project_id, 'feature', fid, 'proposed', coalesce(app.jtext(body->'name'), '') || ' in ' || m.name || ': ' || reason, me.id);
@@ -1645,10 +1748,18 @@ language plpgsql as $$
 declare it app.work_items; m app.work_items; notes text[] := '{}'; keys text[] := '{}'; v_size text; ps date; pe date;
   new_start date; new_days int; seq int;
 begin
-  perform app.require_admin(me);
   select * into it from app.work_items where id = iid;
   if it.id is null then perform app.fail(404, 'Item not found.'); end if;
+  if not app.can_manage(me.id, me.role = 'admin', iid) then perform app.fail(403, 'Only admins and the person who added this module can change it.'); end if;
+  if me.role <> 'admin' and it.status = 'proposed' then perform app.fail(400, 'An admin decides on proposed features.'); end if;
+  if me.role <> 'admin' and (b ?| array['start_date','duration_days','end_date','planned_start','planned_end','manual_dates']) then
+    perform app.fail(403, 'Deadlines are set. Only an admin can change dates now.');
+  end if;
   if b ? 'name' then
+    if lower(trim(app.v_str(b->'name', 200, true, 'Name'))) <> lower(trim(it.name))
+       and app.name_taken(it.project_id, case when it.level = 'feature' then it.parent_id end, app.jtext(b->'name')) is not null then
+      perform app.fail(409, 'That name is already used here.');
+    end if;
     update app.work_items set name = app.v_str(b->'name', 200, true, 'Name') where id = iid; keys := keys || 'name'::text;
   end if;
   if b ? 'description' then
@@ -1668,7 +1779,9 @@ begin
   end if;
   if it.level = 'module' then
     if b ? 'start_date' then new_start := app.v_date(b->'start_date', 'Start date', true); end if;
-    if b ? 'duration_days' then new_days := app.v_int(b->'duration_days', 'Duration', 1, 730, true); end if;
+    if b ? 'duration_days' or b ? 'end_date' then
+      new_days := app.module_days(b, coalesce(new_start, it.start_date), app.company_of_project(it.project_id));
+    end if;
     if new_start is not null then update app.work_items set start_date = new_start where id = iid; keys := keys || 'start_date'::text; end if;
     if new_days is not null then update app.work_items set duration_days = new_days where id = iid; keys := keys || 'duration_days'::text; end if;
     if (new_start is not null and new_start is distinct from it.start_date) or (new_days is not null and new_days is distinct from it.duration_days) then
@@ -1771,9 +1884,9 @@ create or replace function app.r_item_assignees(me app.users, iid bigint, body j
 language plpgsql as $$
 declare it app.work_items; mid bigint; why text; res jsonb; pname text; ids jsonb;
 begin
-  perform app.require_admin(me);
   select * into it from app.work_items where id = iid;
   if it.id is null then perform app.fail(404, 'Item not found.'); end if;
+  if not app.can_manage(me.id, me.role = 'admin', iid) then perform app.fail(403, 'Only admins and the person who added this module can assign people to it.'); end if;
   ids := case when jsonb_typeof(body->'user_ids') = 'array' then body->'user_ids' else '[]'::jsonb end;
   if jsonb_array_length(ids) > 0 then
     mid := case when it.level = 'module' then it.id else it.parent_id end;
@@ -1783,9 +1896,70 @@ begin
   res := app.set_assignees(iid, ids, body->'lead_id', me.id);
   perform app.audit(it.project_id, it.level, iid, 'assigned', 'now: ' || app.user_names(app.assignee_ids(iid)), me.id);
   select name into pname from app.projects where id = it.project_id;
-  perform app.notify(array(select jsonb_array_elements_text(res->'added')::bigint), 'assigned',
+  perform app.notify(array(select x::bigint from jsonb_array_elements_text(res->'added') x where x::bigint <> me.id), 'assigned',
     'You were assigned to ' || it.level || ' ' || it.name, pname,
     case when it.level = 'module' then '/projects/' || it.project_id else '/items/' || iid end);
+  perform app.after(it.project_id);
+  return '{"ok":true}';
+end $$;
+
+-- Anyone on the team can put themselves on a module or feature to show their part in it. No approval; admins are told.
+create or replace function app.r_item_join(me app.users, iid bigint) returns jsonb
+language plpgsql as $$
+declare it app.work_items; why text; pname text; mname text;
+begin
+  select * into it from app.work_items where id = iid;
+  if it.id is null or not (it.project_id = any(app.visible_project_ids(me.id, me.role = 'admin'))) then perform app.fail(404, 'Item not found.'); end if;
+  if (select status from app.projects where id = it.project_id) <> 'active' then perform app.fail(400, 'This project is not active.'); end if;
+  if it.status in ('done','cancelled','on_hold') then perform app.fail(400, 'This ' || it.level || ' is closed.'); end if;
+  if app.is_assigned(me.id, iid) then perform app.fail(400, 'You are already on this ' || it.level || '.'); end if;
+  if it.level = 'feature' and me.id = any(app.effective_assignees(iid)) then
+    perform app.fail(400, 'You are already on this feature through its module team.');
+  end if;
+  why := app.module_not_ready(case when it.level = 'module' then it.id else it.parent_id end);
+  if why is not null then perform app.fail(400, 'This module is not planned yet, so nobody can join it.'); end if;
+  if it.level = 'feature' and not exists (select 1 from app.assignments where work_item_id = iid) then
+    -- The feature belonged to the whole module team: keep them on it alongside the new person.
+    insert into app.assignments (work_item_id, user_id, is_lead, assigned_by)
+    select iid, a.user_id, a.is_lead, a.assigned_by from app.assignments a join app.users u on u.id = a.user_id and u.active
+    where a.work_item_id = it.parent_id
+    on conflict (work_item_id, user_id) do nothing;
+  end if;
+  insert into app.assignments (work_item_id, user_id, is_lead, assigned_by)
+  values (iid, me.id, not exists (select 1 from app.assignments where work_item_id = iid), me.id)
+  on conflict (work_item_id, user_id) do nothing;
+  select name into pname from app.projects where id = it.project_id;
+  select name into mname from app.work_items where id = it.parent_id;
+  perform app.audit(it.project_id, it.level, iid, 'joined', me.name || ' joined', me.id);
+  perform app.notify(array(select x from unnest(app.admin_ids()) x where x <> me.id), 'joined',
+    me.name || ' joined ' || it.level || ' ' || it.name,
+    pname || case when mname is not null then ' / ' || mname else '' end,
+    case when it.level = 'module' then '/projects/' || it.project_id else '/items/' || iid end);
+  perform app.after(it.project_id);
+  return '{"ok":true}';
+end $$;
+
+-- People can step off work they put themselves on. Work an admin or the module's author gave them stays theirs.
+create or replace function app.r_item_leave(me app.users, iid bigint) returns jsonb
+language plpgsql as $$
+declare it app.work_items; a app.assignments; pname text; nxt bigint;
+begin
+  select * into it from app.work_items where id = iid;
+  if it.id is null then perform app.fail(404, 'Item not found.'); end if;
+  select * into a from app.assignments where work_item_id = iid and user_id = me.id;
+  if a.id is null then perform app.fail(400, 'You are not on this ' || it.level || '.'); end if;
+  if a.assigned_by is distinct from me.id then
+    perform app.fail(403, 'You were put on this by someone else. Ask an admin to take you off it.');
+  end if;
+  delete from app.assignments where id = a.id;
+  if a.is_lead then
+    select user_id into nxt from app.assignments where work_item_id = iid order by assigned_at, id limit 1;
+    if nxt is not null then update app.assignments set is_lead = true where work_item_id = iid and user_id = nxt; end if;
+  end if;
+  select name into pname from app.projects where id = it.project_id;
+  perform app.audit(it.project_id, it.level, iid, 'left', me.name || ' left', me.id);
+  perform app.notify(array(select x from unnest(app.admin_ids()) x where x <> me.id), 'left',
+    me.name || ' left ' || it.level || ' ' || it.name, pname, '/projects/' || it.project_id);
   perform app.after(it.project_id);
   return '{"ok":true}';
 end $$;
@@ -2552,7 +2726,8 @@ begin
           or exists (select 1 from app.assignments a where a.work_item_id = f.parent_id and a.user_id = me.id))
         order by f.completed_at desc nulls last limit 15) x),
     'modules', (select coalesce(jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name, 'start_date', m.start_date, 'end_date', m.end_date,
-        'status', m.status, 'progress_pct', m.progress_pct, 'project_id', p.id, 'project_name', p.name, 'company_name', c.name)
+        'status', m.status, 'progress_pct', m.progress_pct, 'project_id', p.id, 'project_name', p.name, 'company_name', c.name,
+        'can_manage', app.can_manage(me.id, me.role = 'admin', m.id))
         order by m.end_date nulls first, m.id), '[]')
       from app.assignments a join app.work_items m on m.id = a.work_item_id join app.projects p on p.id = m.project_id
       join app.companies c on c.id = p.company_id
@@ -2637,6 +2812,14 @@ begin
   end if;
   update app.users set auth_id = aid where id = uid;
 end $$;
+
+-- Names of everyone active, for choosing who works on a module. Open to the whole team; no emails.
+create or replace function app.r_people(me app.users) returns jsonb
+language sql stable as $$
+  select jsonb_build_object('people', coalesce(jsonb_agg(jsonb_build_object('id', u.id, 'name', u.name, 'title', u.title, 'role', u.role)
+                                                       order by u.name), '[]'))
+  from app.users u where u.active
+$$;
 
 create or replace function app.r_users(me app.users) returns jsonb
 language plpgsql as $$
@@ -2777,6 +2960,7 @@ begin
     -- people and the signed-in user
     if m = 'GET' and p = '/me' then return app.r_me(me);
     elsif m = 'POST' and p = '/me/tutorial' then return app.r_tutorial_done(me);
+    elsif m = 'GET' and p = '/people' then return app.r_people(me);
     elsif m = 'GET' and p = '/users' then return app.r_users(me);
     elsif m = 'POST' and p = '/users' then return app.r_user_create(me, body);
     elsif m = 'PATCH' and p ~ '^/users/\d+$' then return app.r_user_update(me, id, body);
@@ -2803,6 +2987,8 @@ begin
     elsif m = 'PATCH' and p ~ '^/items/\d+$' then return app.r_item_update(me, id, body);
     elsif m = 'POST' and p ~ '^/items/\d+/status$' then return app.r_item_status(me, id, body);
     elsif m = 'POST' and p ~ '^/items/\d+/assignees$' then return app.r_item_assignees(me, id, body);
+    elsif m = 'POST' and p ~ '^/items/\d+/join$' then return app.r_item_join(me, id);
+    elsif m = 'POST' and p ~ '^/items/\d+/leave$' then return app.r_item_leave(me, id);
     elsif m = 'GET' and p ~ '^/items/\d+$' then return app.r_item(me, id);
     elsif m = 'POST' and p ~ '^/items/\d+/comments$' then return app.r_comment(me, id, body);
     elsif m = 'POST' and p ~ '^/items/\d+/submit$' then return app.r_submit(me, id, body);

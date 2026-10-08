@@ -38,6 +38,16 @@ Everyone sees a short illustrated walkthrough the first time they sign in: admin
 3. **Projects**: create a project, then add modules. Every module needs a size, a start date, a duration in working days and its list of features. Assign people to the module or to individual features.
 4. Or load many at once from a spreadsheet on the **Import** page (template provided there).
 
+## What the team can do on their own
+
+Everyone sees every venture and project, with all their modules and features, so they can check what is already planned before adding anything.
+
+- **Add a module** to any active project: its features and sizes, a start date and a deadline (or a number of working days), and who else works on it. The person adding it is always on it. No approval is needed; admins get a notification. Afterwards they can add features to it and change who works on it.
+- **Join** any open module or feature to show their part in it, with no approval; admins get a notification. They can leave work they joined themselves, but not work someone else put them on.
+- **Suggest a feature** for someone else's module. It is theirs to work on at once, and counts toward progress once an admin accepts it.
+- **Dates:** once a module's deadline is set, only admins can change its dates or its features' dates.
+- **No duplicates:** a module name already used in the project, or a feature name already used in the module, is refused. The form lists what already exists.
+
 ## Google sign-in (optional)
 
 1. Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID → Web application. Authorised redirect URI: `https://qywialfcfqdtpqrifimo.supabase.co/auth/v1/callback`.
@@ -54,7 +64,8 @@ Only emails already added on the People page can get in; any other Google accoun
 | Module % | Weight of approved features ÷ weight of all accepted features |
 | Project % | Each module's % weighted by the module's size |
 | Counts toward % | Only features an admin has approved. Submitted work shows as "in review" |
-| Employee-added features | Visible and workable at once; count only after an admin accepts them and confirms the size |
+| Modules added by the team | Count like any other module from the start; their finished features still go through review |
+| Features the team suggests | Visible and workable at once; count only after an admin accepts them and confirms the size |
 | Health | Work done or in review, compared with what the plan says should be finished by today. Green ≥ 90% of expected, amber ≥ 70%, red below that or past the deadline |
 | Feature dates | Planned automatically inside the module window, in proportion to size, one lane per lead person; admins can set them by hand |
 

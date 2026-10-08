@@ -292,13 +292,23 @@ language sql stable as $$
   select exists (select 1 from app.assignments where work_item_id = item and user_id = uid)
 $$;
 
+-- Who may plan a module and its features: admins, and the team member who added that module.
+create or replace function app.can_manage(uid bigint, admin boolean, item bigint) returns boolean
+language sql stable as $$
+  select admin or exists (
+    select 1 from app.work_items w
+    join app.work_items m on m.id = case when w.level = 'module' then w.id else w.parent_id end
+    join app.users u on u.id = uid and u.active
+    where w.id = item and m.origin = 'workforce' and m.created_by = uid)
+$$;
+
 create or replace function app.can_see(uid bigint, admin boolean, item bigint) returns boolean
 language plpgsql stable as $$
 declare it app.work_items;
 begin
   select * into it from app.work_items where id = item;
   if it.id is null then return false; end if;
-  if admin then return true; end if;
+  if admin or app.can_manage(uid, false, item) then return true; end if;
   if it.level = 'module' then
     if app.is_assigned(uid, it.id) then return true; end if;
     return exists (select 1 from app.assignments a join app.work_items f on f.id = a.work_item_id
@@ -316,12 +326,28 @@ begin
   return uid = any(app.effective_assignees(item)) or app.is_assigned(uid, par);
 end $$;
 
+-- Admins see every project. The team sees every project that is not cancelled, plus any cancelled one they had work in.
 create or replace function app.visible_project_ids(uid bigint, admin boolean) returns bigint[]
 language sql stable as $$
   select case when admin then coalesce(array(select id from app.projects order by id), '{}')
-  else coalesce(array(select distinct w.project_id from app.assignments a join app.work_items w on w.id = a.work_item_id
-                      where a.user_id = uid), '{}') end
+  else coalesce(array(select p.id from app.projects p
+                      where p.status <> 'cancelled'
+                         or exists (select 1 from app.assignments a join app.work_items w on w.id = a.work_item_id
+                                    where a.user_id = uid and w.project_id = p.id)
+                      order by p.id), '{}') end
 $$;
+
+-- Working days from start to a deadline (both inclusive), for modules planned by end date.
+create or replace function app.days_to_deadline(st date, deadline date, cid bigint) returns int
+language plpgsql stable as $$
+declare n int;
+begin
+  if deadline < st then perform app.fail(400, 'The deadline must be on or after the start date.'); end if;
+  n := app.wd_between(st, deadline, cid);
+  if n < 1 then perform app.fail(400, 'There are no working days between the start date and the deadline. Pick another deadline.'); end if;
+  if n > 730 then perform app.fail(400, 'A module can run for at most 730 working days.'); end if;
+  return n;
+end $$;
 
 -- Why a module cannot be assigned yet, or null when it is ready.
 create or replace function app.module_not_ready(mid bigint) returns text

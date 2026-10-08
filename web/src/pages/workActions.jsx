@@ -91,10 +91,12 @@ export function BlockModal({ feature, onClose, onDone }) {
 
 export function ProposeModal({ module, onClose, onDone }) {
   const [f, setF] = useState({ name: '', description: '', size: 'medium', reason: '' });
+  const norm = (x) => (x || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const taken = norm(f.name) ? (module.features || []).find((x) => x.status !== 'cancelled' && norm(x.name) === norm(f.name)) : null;
   const { busy, error, run } = useAction();
   const set = (k) => (e) => setF({ ...f, [k]: e.target ? e.target.value : e });
   const send = async () => {
-    const ok = await run(() => api.post(`/items/${module.id}/propose`, f), 'Feature proposed. An admin will review it.');
+    const ok = await run(() => api.post(`/items/${module.id}/propose`, f), 'Suggestion sent. An admin will review it.');
     if (ok) {
       onDone?.();
       onClose();
@@ -102,23 +104,28 @@ export function ProposeModal({ module, onClose, onDone }) {
   };
   return (
     <Modal
-      title={`Add a feature to ${module.name}`}
+      title={`Suggest a feature for ${module.name}`}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn primary" disabled={busy || !f.name.trim() || !f.reason.trim()} onClick={send}>
-            Propose feature
+          <button className="btn primary" disabled={busy || !f.name.trim() || !f.reason.trim() || !!taken} onClick={send}>
+            Send suggestion
           </button>
         </>
       }
     >
-      <p className="small muted">You can start on it right away. It counts toward progress once an admin accepts it and confirms the size.</p>
+      <p className="small muted">It is yours to work on, and you can start right away. It counts toward progress once an admin accepts it and confirms the size.</p>
       <ErrorBox error={error} />
       <Field label="Feature name">
         <input className="input" value={f.name} onChange={set('name')} autoFocus />
+        {taken && (
+          <div className="tiny mt8" style={{ color: 'var(--red)' }}>
+            {module.name} already has "{taken.name}". Press Join beside it instead.
+          </div>
+        )}
       </Field>
       <Field label="What it covers" hint="optional">
         <textarea className="input" rows={2} value={f.description} onChange={set('description')} />

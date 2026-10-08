@@ -53,14 +53,18 @@ function Timeline({ modules }) {
   );
 }
 
-function FeatureRow({ f, admin, onAction }) {
+function FeatureRow({ f, admin, manage, canJoin, onAction }) {
   return (
     <div className={`feature${f.status === 'proposed' ? ' proposed' : ''}`}>
       <Size s={f.size} />
       <div style={{ minWidth: 0 }}>
-        <Link className="fname" to={`/items/${f.id}`}>
-          {f.name}
-        </Link>
+        {f.can_open ?? true ? (
+          <Link className="fname" to={`/items/${f.id}`}>
+            {f.name}
+          </Link>
+        ) : (
+          <span className="fname">{f.name}</span>
+        )}
         {f.origin === 'workforce' && <span className="tag" style={{ marginLeft: 8 }}>added by team</span>}
         {f.requires_proof && <span className="tag" style={{ marginLeft: 6 }}>needs proof</span>}
         <div className="sub">
@@ -87,7 +91,17 @@ function FeatureRow({ f, admin, onAction }) {
             Review
           </Link>
         )}
-        {admin && f.status !== 'proposed' && (
+        {!admin && canJoin && !f.mine && !['done', 'cancelled'].includes(f.status) && (
+          <button className="btn sm" onClick={() => onAction('join', f)} title="Put yourself on this feature">
+            Join
+          </button>
+        )}
+        {!admin && f.self_joined && !['done', 'cancelled'].includes(f.status) && (
+          <button className="btn sm ghost" onClick={() => onAction('leave', f)}>
+            Leave
+          </button>
+        )}
+        {manage && f.status !== 'proposed' && (
           <>
             <button className="btn sm ghost" onClick={() => onAction('assign-f', f)}>
               Assign
@@ -102,10 +116,12 @@ function FeatureRow({ f, admin, onAction }) {
   );
 }
 
-function ModuleBlock({ m, admin, me, open, onToggle, onAction }) {
+function ModuleBlock({ m, admin, projectActive, open, onToggle, onAction }) {
   const counted = m.features.filter((f) => !['proposed', 'cancelled'].includes(f.status));
   const doneN = counted.filter((f) => f.status === 'done').length;
-  const onTeam = m.assignees.some((a) => a.id === me.id);
+  const manage = admin || m.can_manage;
+  const onTeam = m.on_team ?? true;
+  const closed = ['done', 'cancelled', 'on_hold'].includes(m.status);
   return (
     <div className={`module${open ? ' open' : ''}`}>
       <div className="mh" onClick={onToggle} role="button" tabIndex={0} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onToggle())} aria-expanded={open}>
@@ -117,24 +133,19 @@ function ModuleBlock({ m, admin, me, open, onToggle, onAction }) {
             <Size s={m.size} />
             <strong style={{ color: 'var(--ink)' }}>{m.name}</strong>
             {m.status !== 'in_progress' && m.status !== 'not_started' && <Status s={m.status} />}
+            {m.added_by && <span className="tag">{m.can_manage && !admin ? 'Added by you' : `Added by ${m.added_by}`}</span>}
             {admin && m.flags?.length > 0 && <span className={`sev ${m.flags.some((x) => x.severity === 'red') ? 'red' : 'amber'}`}>{m.flags.length} flag{m.flags.length > 1 ? 's' : ''}</span>}
           </div>
           <div className="meta">
-            {m.limited ? (
-              <span>You see only your features in this module. Due {fmtDate(m.end_date)}.</span>
-            ) : (
-              <>
-                <Avatars people={m.assignees} />
-                <span>
-                  {fmtDate(m.start_date)} to {fmtDate(m.end_date)}
-                  {m.original_end_date && m.original_end_date !== m.end_date && <span title="Original deadline"> (was {fmtDate(m.original_end_date)})</span>}
-                </span>
-                <span>
-                  {doneN} of {counted.length} features done
-                </span>
-                {admin && <Health h={m.health} />}
-              </>
-            )}
+            <Avatars people={m.assignees} />
+            <span>
+              {fmtDate(m.start_date)} to {fmtDate(m.end_date)}
+              {m.original_end_date && m.original_end_date !== m.end_date && <span title="Original deadline"> (was {fmtDate(m.original_end_date)})</span>}
+            </span>
+            <span>
+              {doneN} of {counted.length} features done
+            </span>
+            {admin && <Health h={m.health} />}
           </div>
         </div>
         {m.progress_pct != null ? <PlanLine done={m.progress_pct} review={m.pending_pct} expected={admin ? m.expected_pct : undefined} /> : <span />}
@@ -146,11 +157,11 @@ function ModuleBlock({ m, admin, me, open, onToggle, onAction }) {
           {m.status_reason && ['on_hold', 'cancelled'].includes(m.status) && <div className="pb small">Reason: {m.status_reason}</div>}
           <div>
             {m.features.map((f) => (
-              <FeatureRow key={f.id} f={f} admin={admin} onAction={(k, x) => onAction(k, x, m)} />
+              <FeatureRow key={f.id} f={f} admin={admin} manage={manage} canJoin={projectActive && !closed} onAction={(k, x) => onAction(k, x, m)} />
             ))}
           </div>
           <div className="gap8" style={{ padding: '10px 16px', borderTop: '1px solid var(--line)' }}>
-            {admin ? (
+            {manage && (admin || !closed) && (
               <>
                 <button className="btn sm" onClick={() => onAction('add-f', null, m)}>
                   Add feature
@@ -161,6 +172,10 @@ function ModuleBlock({ m, admin, me, open, onToggle, onAction }) {
                 <button className="btn sm" onClick={() => onAction('edit-m', m)}>
                   Edit module
                 </button>
+              </>
+            )}
+            {admin ? (
+              <>
                 {['on_hold', 'cancelled'].includes(m.status) ? (
                   <button className="btn sm" onClick={() => onAction('resume-m', m)}>
                     Resume
@@ -177,11 +192,23 @@ function ModuleBlock({ m, admin, me, open, onToggle, onAction }) {
                 )}
               </>
             ) : (
-              onTeam && !['done', 'cancelled', 'on_hold'].includes(m.status) && (
-                <button className="btn sm" onClick={() => onAction('propose', m)}>
-                  Add a feature
-                </button>
-              )
+              <>
+                {!onTeam && !closed && projectActive && (
+                  <button className="btn sm primary" onClick={() => onAction('join', m)} title="Put yourself on this module">
+                    Join module
+                  </button>
+                )}
+                {!manage && !closed && projectActive && (
+                  <button className="btn sm" onClick={() => onAction('propose', m)}>
+                    Suggest a feature
+                  </button>
+                )}
+                {onTeam && m.self_joined && !closed && (
+                  <button className="btn sm ghost" onClick={() => onAction('leave', m)}>
+                    Leave module
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -209,7 +236,16 @@ export default function Project() {
     s.has(mid) ? s.delete(mid) : s.add(mid);
     setOpenIds(s);
   };
-  const onAction = (kind, item, mod) => setModal({ kind, item, mod });
+  const onAction = async (kind, item, mod) => {
+    if (kind !== 'join' && kind !== 'leave') return setModal({ kind, item, mod });
+    try {
+      await api.post(`/items/${item.id}/${kind}`);
+      toast(kind === 'join' ? `You joined ${item.name}. Your admin has been told.` : `You left ${item.name}.`);
+      reload();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
   const close = () => setModal(null);
   const statusAction = (itemId, status) => (reason) => api.post(`/items/${itemId}/status`, { status, reason });
 
@@ -223,13 +259,15 @@ export default function Project() {
           <h1>{p.name}</h1>
           {p.description && <div className="sub">{p.description}</div>}
         </div>
-        {isAdmin && (
+        {(isAdmin || p.can_add_module) && (
           <div className="actions">
-            <button className="btn" onClick={() => setModal({ kind: 'edit-p' })}>
-              Edit project
-            </button>
+            {isAdmin && (
+              <button className="btn" onClick={() => setModal({ kind: 'edit-p' })}>
+                Edit project
+              </button>
+            )}
             <button className="btn primary" onClick={() => setModal({ kind: 'add-m' })}>
-              Add module
+              Add a module
             </button>
           </div>
         )}
@@ -326,7 +364,9 @@ export default function Project() {
         <>
           {!mods.length && (
             <div className="panel">
-              <Empty title="No modules yet">{isAdmin ? 'Add a module with its features, dates and people to start tracking.' : 'Nothing here is assigned to you yet.'}</Empty>
+              <Empty title="No modules yet">
+                {isAdmin || p.can_add_module ? 'Add a module with its features, dates and people to start tracking.' : 'This project has no modules.'}
+              </Empty>
             </div>
           )}
           {mods.length > 1 && (
@@ -340,7 +380,7 @@ export default function Project() {
             </div>
           )}
           {mods.map((m) => (
-            <ModuleBlock key={m.id} m={m} admin={isAdmin} me={user} open={opened.has(m.id)} onToggle={() => toggle(m.id)} onAction={onAction} />
+            <ModuleBlock key={m.id} m={m} admin={isAdmin} projectActive={p.status === 'active'} open={opened.has(m.id)} onToggle={() => toggle(m.id)} onAction={onAction} />
           ))}
         </>
       )}
@@ -377,12 +417,12 @@ export default function Project() {
       )}
 
       {modal?.kind === 'edit-p' && <ProjectForm project={p} onClose={close} onDone={reload} />}
-      {modal?.kind === 'add-m' && <ModuleForm projectId={p.id} onClose={close} onDone={reload} />}
-      {modal?.kind === 'edit-m' && <ModuleEdit module={modal.item} onClose={close} onDone={reload} />}
-      {modal?.kind === 'assign-m' && <AssignModal item={{ ...modal.item, level: 'module' }} onClose={close} onDone={reload} />}
-      {modal?.kind === 'assign-f' && <AssignModal item={{ ...modal.item, level: 'feature' }} onClose={close} onDone={reload} />}
-      {modal?.kind === 'add-f' && <FeatureForm module={modal.mod} onClose={close} onDone={reload} />}
-      {modal?.kind === 'edit-f' && <FeatureForm module={modal.mod} feature={modal.item} onClose={close} onDone={reload} />}
+      {modal?.kind === 'add-m' && <ModuleForm projectId={p.id} projectName={p.name} existing={mods} team={!isAdmin} me={user} onClose={close} onDone={reload} />}
+      {modal?.kind === 'edit-m' && <ModuleEdit module={modal.item} admin={isAdmin} onClose={close} onDone={reload} />}
+      {modal?.kind === 'assign-m' && <AssignModal item={{ ...modal.item, level: 'module' }} me={user} onClose={close} onDone={reload} />}
+      {modal?.kind === 'assign-f' && <AssignModal item={{ ...modal.item, level: 'feature' }} me={user} onClose={close} onDone={reload} />}
+      {modal?.kind === 'add-f' && <FeatureForm module={modal.mod} me={user} admin={isAdmin} onClose={close} onDone={reload} />}
+      {modal?.kind === 'edit-f' && <FeatureForm module={modal.mod} feature={modal.item} me={user} admin={isAdmin} onClose={close} onDone={reload} />}
       {modal?.kind === 'propose' && <ProposeModal module={modal.item} onClose={close} onDone={reload} />}
       {modal?.kind === 'hold-m' && (
         <ReasonModal title={`Put ${modal.item.name} on hold`} label="Reason" confirm="Put on hold" action={statusAction(modal.item.id, 'on_hold')} onClose={close} onDone={() => (toast('Module on hold'), reload())} />

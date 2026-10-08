@@ -490,7 +490,8 @@ begin
           or exists (select 1 from app.assignments a where a.work_item_id = f.parent_id and a.user_id = me.id))
         order by f.completed_at desc nulls last limit 15) x),
     'modules', (select coalesce(jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name, 'start_date', m.start_date, 'end_date', m.end_date,
-        'status', m.status, 'progress_pct', m.progress_pct, 'project_id', p.id, 'project_name', p.name, 'company_name', c.name)
+        'status', m.status, 'progress_pct', m.progress_pct, 'project_id', p.id, 'project_name', p.name, 'company_name', c.name,
+        'can_manage', app.can_manage(me.id, me.role = 'admin', m.id))
         order by m.end_date nulls first, m.id), '[]')
       from app.assignments a join app.work_items m on m.id = a.work_item_id join app.projects p on p.id = m.project_id
       join app.companies c on c.id = p.company_id
@@ -575,6 +576,14 @@ begin
   end if;
   update app.users set auth_id = aid where id = uid;
 end $$;
+
+-- Names of everyone active, for choosing who works on a module. Open to the whole team; no emails.
+create or replace function app.r_people(me app.users) returns jsonb
+language sql stable as $$
+  select jsonb_build_object('people', coalesce(jsonb_agg(jsonb_build_object('id', u.id, 'name', u.name, 'title', u.title, 'role', u.role)
+                                                       order by u.name), '[]'))
+  from app.users u where u.active
+$$;
 
 create or replace function app.r_users(me app.users) returns jsonb
 language plpgsql as $$

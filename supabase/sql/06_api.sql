@@ -41,6 +41,7 @@ begin
     -- people and the signed-in user
     if m = 'GET' and p = '/me' then return app.r_me(me);
     elsif m = 'POST' and p = '/me/tutorial' then return app.r_tutorial_done(me);
+    elsif m = 'GET' and p = '/people' then return app.r_people(me);
     elsif m = 'GET' and p = '/users' then return app.r_users(me);
     elsif m = 'POST' and p = '/users' then return app.r_user_create(me, body);
     elsif m = 'PATCH' and p ~ '^/users/\d+$' then return app.r_user_update(me, id, body);
@@ -67,6 +68,8 @@ begin
     elsif m = 'PATCH' and p ~ '^/items/\d+$' then return app.r_item_update(me, id, body);
     elsif m = 'POST' and p ~ '^/items/\d+/status$' then return app.r_item_status(me, id, body);
     elsif m = 'POST' and p ~ '^/items/\d+/assignees$' then return app.r_item_assignees(me, id, body);
+    elsif m = 'POST' and p ~ '^/items/\d+/join$' then return app.r_item_join(me, id);
+    elsif m = 'POST' and p ~ '^/items/\d+/leave$' then return app.r_item_leave(me, id);
     elsif m = 'GET' and p ~ '^/items/\d+$' then return app.r_item(me, id);
     elsif m = 'POST' and p ~ '^/items/\d+/comments$' then return app.r_comment(me, id, body);
     elsif m = 'POST' and p ~ '^/items/\d+/submit$' then return app.r_submit(me, id, body);
