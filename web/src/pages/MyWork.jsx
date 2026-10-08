@@ -74,6 +74,7 @@ export default function MyWork() {
                       </td>
                       <td>
                         <Status s={f.status} sentBack={f.sent_back} />
+                        {f.work_pct > 0 && <span className="tiny muted"> {f.work_pct}%</span>}
                       </td>
                       <td className="nowrap">{fmtDate(f.planned_end)}</td>
                     </tr>

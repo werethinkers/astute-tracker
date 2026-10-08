@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
-import { useApi, Loading, ErrorBox, Status, Size, Avatar, PlanLine, Health, DaysLeft, fmtDate, fmtDateY, fmtWhen, Empty, useAction, useToast, Field, FileLink } from '../ui.jsx';
-import { SubmitModal, BlockModal } from './workActions.jsx';
+import { useApi, Loading, ErrorBox, Status, Size, Avatar, PlanLine, Health, DaysLeft, fmtDate, fmtDateY, fmtWhen, Empty, useAction, useToast, Field, FileLink, Modal } from '../ui.jsx';
+import { SubmitModal, BlockModal, ProgressModal } from './workActions.jsx';
 import { FeatureForm, ModuleEdit, AssignModal, ReasonModal } from './adminForms.jsx';
 
 const fileSize = (b) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
@@ -119,6 +119,7 @@ export default function Item() {
   const toast = useToast();
   const { data, loading, error, reload } = useApi(`/items/${id}`);
   const [modal, setModal] = useState(null);
+  const [finishNote, setFinishNote] = useState('');
   const { run } = useAction();
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox error={error} />;
@@ -157,6 +158,11 @@ export default function Item() {
         </div>
         <div className="actions">
           {isFeature && worker && ['not_started', 'in_progress', 'blocked'].includes(it.status) && (
+            <button className="btn" onClick={() => setModal('progress')}>
+              Update progress
+            </button>
+          )}
+          {isFeature && worker && ['not_started', 'in_progress', 'blocked'].includes(it.status) && (
             <button className="btn primary" onClick={() => setModal('submit')}>
               Mark as done
             </button>
@@ -178,6 +184,9 @@ export default function Item() {
               </button>
               <button className="btn" onClick={() => setModal('edit')}>
                 Edit
+              </button>
+              <button className="btn danger" onClick={() => setModal('delete')}>
+                Delete
               </button>
             </>
           )}
@@ -239,6 +248,34 @@ export default function Item() {
                       <span className="small muted">{fmtDate(f.planned_end)}</span>
                       <Status s={f.status} />
                     </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isFeature && (
+            <div className="panel">
+              <div className="ph">
+                <h3>Progress</h3>
+                <span className="small muted">{it.status === 'done' ? 100 : it.work_pct || 0}% of the work</span>
+              </div>
+              <div className="pb">
+                <PlanLine done={it.status === 'done' ? 100 : it.work_pct || 0} showPct={false} />
+              </div>
+              {!data.progress_updates?.length && <div className="pb small muted">No updates yet. {worker ? 'Use Update progress to add one with a note.' : ''}</div>}
+              <div className="divide">
+                {(data.progress_updates || []).map((u) => (
+                  <div key={u.id} className="pb">
+                    <div className="gap8 small" style={{ justifyContent: 'space-between' }}>
+                      <span>
+                        <strong>{u.name}</strong> <span className="muted">{fmtWhen(u.at)}</span>
+                      </span>
+                      <span className="num">
+                        {u.from_pct}% to {u.to_pct}%
+                      </span>
+                    </div>
+                    <div style={{ whiteSpace: 'pre-wrap' }}>{u.note}</div>
                   </div>
                 ))}
               </div>
@@ -387,7 +424,19 @@ export default function Item() {
         <Comments itemId={it.id} comments={comments} onPosted={reload} />
       </div>
 
-      {modal === 'submit' && <SubmitModal feature={it} minChars={data.min_note_chars} onClose={close} onDone={reload} />}
+      {modal === 'progress' && (
+        <ProgressModal
+          feature={it}
+          onClose={close}
+          onDone={reload}
+          onFinish={(n) => {
+            setFinishNote(n);
+            setModal('submit');
+          }}
+        />
+      )}
+      {modal === 'delete' && <DeleteModal item={it} onClose={close} />}
+      {modal === 'submit' && <SubmitModal feature={it} minChars={data.min_note_chars} initialNote={finishNote} onClose={close} onDone={reload} />}
       {modal === 'block' && <BlockModal feature={it} onClose={close} onDone={reload} />}
       {modal === 'assign' && <AssignModal item={{ ...it, assignees }} onClose={close} onDone={reload} />}
       {modal === 'edit' && (isFeature ? <FeatureForm module={module} feature={it} onClose={close} onDone={reload} /> : <ModuleEdit module={it} onClose={close} onDone={reload} />)}
@@ -395,5 +444,41 @@ export default function Item() {
       {modal === 'cancel' && <ReasonModal danger title={`Cancel ${it.name}`} label="Reason" confirm="Cancel feature" action={status('cancelled')} onClose={close} onDone={() => (toast('Cancelled'), reload())} />}
       {modal === 'reopen' && <ReasonModal title={`Reopen ${it.name}`} label="Why it needs more work" confirm="Reopen" action={status('in_progress')} onClose={close} onDone={() => (toast('Reopened'), reload())} />}
     </>
+  );
+}
+
+function DeleteModal({ item, onClose }) {
+  const nav = useNavigate();
+  const { busy, error, run } = useAction();
+  const go = async () => {
+    const out = await run(() => api.del(`/items/${item.id}`), `${item.level === 'module' ? 'Module' : 'Feature'} deleted`);
+    if (out) {
+      onClose();
+      nav(`/projects/${out.project_id}`);
+    }
+  };
+  return (
+    <Modal
+      title={`Delete ${item.level} "${item.name}"?`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Keep it
+          </button>
+          <button className="btn danger" disabled={busy} onClick={go}>
+            {busy ? 'Deleting…' : 'Delete for good'}
+          </button>
+        </>
+      }
+    >
+      <ErrorBox error={error} />
+      <p>
+        {item.level === 'module'
+          ? 'This removes the module and all of its features, with their notes, progress history, submissions and comments.'
+          : 'This removes the feature with its notes, progress history, submissions and comments.'}{' '}
+        It cannot be undone. People assigned to it are told. To keep the record, cancel it instead.
+      </p>
+    </Modal>
   );
 }

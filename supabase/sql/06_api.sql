@@ -68,6 +68,8 @@ begin
     elsif m = 'PATCH' and p ~ '^/items/\d+$' then return app.r_item_update(me, id, body);
     elsif m = 'POST' and p ~ '^/items/\d+/status$' then return app.r_item_status(me, id, body);
     elsif m = 'POST' and p ~ '^/items/\d+/assignees$' then return app.r_item_assignees(me, id, body);
+    elsif m = 'POST' and p ~ '^/items/\d+/progress$' then return app.r_item_progress(me, id, body);
+    elsif m = 'DELETE' and p ~ '^/items/\d+$' then return app.r_item_delete(me, id);
     elsif m = 'POST' and p ~ '^/items/\d+/join$' then return app.r_item_join(me, id);
     elsif m = 'POST' and p ~ '^/items/\d+/leave$' then return app.r_item_leave(me, id);
     elsif m = 'GET' and p ~ '^/items/\d+$' then return app.r_item(me, id);

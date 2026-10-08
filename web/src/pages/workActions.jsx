@@ -3,8 +3,8 @@ import { api } from '../api.js';
 import { Modal, Field, useAction, ErrorBox } from '../ui.jsx';
 
 /** "Mark as done" form: compulsory note plus documents and links, sent for admin review. */
-export function SubmitModal({ feature, minChars = 30, onClose, onDone }) {
-  const [note, setNote] = useState('');
+export function SubmitModal({ feature, minChars = 30, initialNote = '', onClose, onDone }) {
+  const [note, setNote] = useState(initialNote);
   const [links, setLinks] = useState('');
   const [files, setFiles] = useState([]);
   const { busy, error, run } = useAction();
@@ -149,5 +149,52 @@ function SizeSeg({ value, onChange }) {
         </button>
       ))}
     </div>
+  );
+}
+
+/** Move a feature's percentage. A note is needed every time; 100% carries on to the "Mark as done" form. */
+export function ProgressModal({ feature, onClose, onDone, onFinish }) {
+  const cur = feature.work_pct || 0;
+  const [pct, setPct] = useState(cur);
+  const [note, setNote] = useState('');
+  const { busy, error, run } = useAction();
+  const same = pct === cur;
+  const finishing = pct === 100;
+  const save = async () => {
+    if (finishing) {
+      onClose();
+      onFinish?.(note);
+      return;
+    }
+    const ok = await run(() => api.post(`/items/${feature.id}/progress`, { pct, note }), 'Progress saved');
+    if (ok) {
+      onDone?.();
+      onClose();
+    }
+  };
+  return (
+    <Modal
+      title={`How far along is "${feature.name}"?`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={busy || same || !note.trim()} onClick={save}>
+            {finishing ? 'Next: send for review' : 'Save progress'}
+          </button>
+        </>
+      }
+    >
+      <ErrorBox error={error} />
+      <Field label={`Work done: ${pct}%`} hint={`was ${cur}%`}>
+        <input type="range" min="0" max="100" step="5" value={pct} onChange={(e) => setPct(Number(e.target.value))} style={{ width: '100%' }} />
+      </Field>
+      <Field label="What changed?" hint="required each time you move the percentage">
+        <textarea className="input" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What you finished or found since the last update." autoFocus />
+      </Field>
+      {finishing && <div className="note">At 100% the feature goes to an admin for review. You will add documents or links next.</div>}
+    </Modal>
   );
 }

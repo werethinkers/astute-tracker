@@ -53,7 +53,7 @@ begin
   end if;
   drop_auth := array(select auth_id from app.users where auth_id is not null and auth_id is distinct from keep_auth);
 
-  truncate app.progress_snapshots, app.audit_log, app.notifications, app.comments, app.flags, app.log_entries, app.daily_logs,
+  truncate app.progress_snapshots, app.progress_updates, app.audit_log, app.notifications, app.comments, app.flags, app.log_entries, app.daily_logs,
            app.daily_targets, app.submission_files, app.submissions, app.assignments, app.work_items, app.projects,
            app.holidays, app.companies, app.users restart identity cascade;
   -- Uploaded documents: newer Supabase versions only allow removing them through Storage itself.

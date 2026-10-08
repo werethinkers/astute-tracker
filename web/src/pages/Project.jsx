@@ -85,6 +85,7 @@ function FeatureRow({ f, admin, manage, canJoin, onAction }) {
         {f.status === 'proposed' && f.proposal_reason && <div className="tiny muted">Why: {f.proposal_reason}</div>}
       </div>
       <Status s={f.status} sentBack={f.sent_back} />
+      {f.work_pct > 0 && f.status !== 'done' && <span className="tiny muted">{f.work_pct}%</span>}
       <div className="gap8">
         {admin && f.status === 'proposed' && (
           <Link className="btn sm" to="/reviews">

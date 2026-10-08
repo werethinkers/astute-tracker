@@ -266,7 +266,7 @@ begin
         'id', f.id, 'name', f.name, 'description', f.description, 'size', f.size, 'weight', f.weight, 'status', f.status,
         'origin', f.origin, 'requires_proof', f.requires_proof, 'sent_back', f.sent_back,
         'planned_start', f.planned_start, 'planned_end', f.planned_end, 'manual_dates', f.manual_dates, 'sequence', f.sequence,
-        'status_reason', f.status_reason, 'proposal_reason', f.proposal_reason,
+        'status_reason', f.status_reason, 'proposal_reason', f.proposal_reason, 'work_pct', f.work_pct,
         'assignees', (select coalesce(jsonb_agg(jsonb_build_object('id', u.id, 'name', u.name, 'is_lead', a.is_lead, 'active', u.active) order by a.is_lead desc, a.user_id), '[]')
                       from app.assignments a join app.users u on u.id = a.user_id where a.work_item_id = f.id),
         'effective', (select coalesce(jsonb_agg(u.name order by u.id), '[]') from app.users u where u.id = any(app.effective_assignees(f.id))),
@@ -777,7 +777,7 @@ begin
       'status', it.status, 'status_reason', it.status_reason, 'origin', it.origin, 'proposal_reason', it.proposal_reason,
       'requires_proof', it.requires_proof, 'sent_back', it.sent_back, 'start_date', it.start_date, 'duration_days', it.duration_days,
       'end_date', it.end_date, 'original_end_date', it.original_end_date, 'planned_start', it.planned_start, 'planned_end', it.planned_end,
-      'manual_dates', it.manual_dates,
+      'manual_dates', it.manual_dates, 'work_pct', it.work_pct,
       'proposed_by', (select name from app.users where id = it.proposed_by))
       || case when it.level = 'module' and on_module then jsonb_build_object('progress_pct', it.progress_pct) else '{}'::jsonb end,
     'project', (select jsonb_build_object('id', p.id, 'name', p.name, 'status', p.status, 'company_name', c.name)
@@ -800,6 +800,9 @@ begin
                where e.work_item_id = iid order by l.date desc, e.id desc limit 200) x),
     'comments', (select coalesce(jsonb_agg(to_jsonb(c) || jsonb_build_object('name', u.name) order by c.id), '[]')
                  from app.comments c join app.users u on u.id = c.user_id where c.work_item_id = iid),
+    'progress_updates', (select coalesce(jsonb_agg(jsonb_build_object('id', x.id, 'from_pct', x.from_pct, 'to_pct', x.to_pct, 'note', x.note,
+                           'at', x.at, 'name', u.name) order by x.id desc), '[]')
+                         from app.progress_updates x join app.users u on u.id = x.user_id where x.work_item_id = iid),
     'can_work', it.level = 'feature' and app.can_work(me.id, admin, iid),
     'min_note_chars', app.setting_num('min_note_chars', 30));
   if it.level = 'module' then
@@ -910,7 +913,8 @@ begin
   foreach l in array links loop
     insert into app.submission_files (submission_id, kind, url) values (sub_id, 'link', l);
   end loop;
-  update app.work_items set status = 'submitted', sent_back = false, started_at = coalesce(started_at, app.app_now()) where id = iid;
+  update app.work_items set status = 'submitted', sent_back = false, work_pct = 100, started_at = coalesce(started_at, app.app_now()) where id = iid;
+  insert into app.progress_updates (work_item_id, user_id, from_pct, to_pct, note) values (iid, me.id, it.work_pct, 100, note);
   perform app.audit(it.project_id, 'feature', iid, 'submitted', nfiles || ' file(s), ' || cardinality(links) || ' link(s)', me.id);
   if p.auto_approve then
     perform app.decide(sub_id, 'approved', null, me.id, true);

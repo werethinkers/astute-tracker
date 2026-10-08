@@ -472,7 +472,7 @@ language plpgsql as $$
 begin
   return jsonb_build_object(
     'open', (select coalesce(jsonb_agg(jsonb_build_object(
-        'id', f.id, 'name', f.name, 'status', f.status, 'size', f.size, 'planned_start', f.planned_start, 'planned_end', f.planned_end,
+        'id', f.id, 'name', f.name, 'status', f.status, 'size', f.size, 'planned_start', f.planned_start, 'planned_end', f.planned_end, 'work_pct', f.work_pct,
         'sent_back', f.sent_back, 'requires_proof', f.requires_proof, 'module_id', f.parent_id, 'module_name', m.name,
         'module_end', m.end_date, 'project_id', p.id, 'project_name', p.name, 'company_name', c.name) order by x.ord), '[]')
       from app.open_feature_ids(me.id) with ordinality x(id, ord)
