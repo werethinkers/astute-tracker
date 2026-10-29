@@ -4,7 +4,7 @@ You have **24 hours from the moment you pressed Start** to audit **ezyourlife.co
 
 EZYOURLIFE presents itself as an AI app store for small businesses in India: 445+ AI apps, websites and digital cards, 100 free credits, and pay only for results. Act as developer, tester and UX reviewer for the real product.
 
-The work should take **6 to 8 focused hours**, not 24. The window is there so you can fit it around your day. We would rather read a sharp, honest report than an exhausted one.
+The work should take **7 to 9 focused hours**, not 24. The window is there so you can fit it around your day. We would rather read a sharp, honest report than an exhausted one.
 
 We are not looking for a long list of cosmetic nitpicks. We are looking for:
 
@@ -47,6 +47,7 @@ If you find something that looks like a **security issue or exposed personal dat
 | C | Testing plan and automation | 15 |
 | D | Fix or build one improvement | 20 |
 | E | Prioritized roadmap | 10 |
+| F | Coding questions (run the tests on this page) | scored separately |
 
 **Part 0: Map the product (30 min).** Before you test, sketch the flows you can find: first visit, sign-up and login, browsing and searching the app catalogue, running an app, spending credits, buying more, building a website or digital card, contacting support. Say which flows you could not reach and why. A short list or diagram is enough.
 
@@ -65,6 +66,8 @@ If you find something that looks like a **security issue or exposed personal dat
 
 **Part E: Roadmap.** From everything you found, list your **top 10 recommendations** in a table ranked by impact and effort, with the reason for the order, a metric that will show success, and which 3 you would do in the first two weeks. Include one thing you would deliberately **not** do.
 
+**Part F: Coding questions (about 45 min).** Below the brief on this page you will find four short JavaScript questions. Each has a code box and sample tests. Press **Run tests** to see which pass. Your code is saved automatically. We run extra tests you cannot see, so handle edge cases, not just the samples. You may use any tools you like, but you must be able to explain your code.
+
 ## What to submit
 
 Use the boxes on this page before your 24 hours end. Once the clock ends, everything is locked.
@@ -81,7 +84,7 @@ Be ready for a **30-minute follow-up call** within 48 hours of submission to wal
 
 ## Suggested time plan
 
-Plan about 7 hours of work across the window. Sleep and breaks are expected.
+Plan about 8 hours of work across the window. Sleep and breaks are expected.
 
 | Block | Time |
 | --- | --- |
@@ -91,4 +94,5 @@ Plan about 7 hours of work across the window. Sleep and breaks are expected.
 | Part C: testing | 1:00 |
 | Part D: one fix | 1:30 |
 | Part E: roadmap | 0:30 |
+| Part F: coding questions | 0:45 |
 | Review and write the summary | 0:30 |

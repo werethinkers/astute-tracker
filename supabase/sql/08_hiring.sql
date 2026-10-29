@@ -47,6 +47,7 @@ alter table app.hiring_candidates add column if not exists login_id text unique;
 alter table app.hiring_candidates add column if not exists assignment_started_at timestamptz;
 alter table app.hiring_candidates add column if not exists answer text;
 alter table app.hiring_candidates add column if not exists answer_updated_at timestamptz;
+alter table app.hiring_candidates add column if not exists code jsonb;
 do $$ begin
   if not exists (select 1 from pg_constraint where conname = 'hiring_answer_len') then
     alter table app.hiring_candidates add constraint hiring_answer_len check (answer is null or char_length(answer) <= 20000);
@@ -69,19 +70,26 @@ create table if not exists app.hiring_brief (
   html text not null
 );
 
+-- Coding questions: visible test cases go to candidates, "hidden" cases only to the admin.
+create table if not exists app.hiring_questions (
+  id   int primary key check (id = 1),
+  data jsonb not null
+);
+
 -- Locked down like every other table here: no direct access from the browser.
 alter table app.hiring_candidates enable row level security;
 alter table app.hiring_reviews enable row level security;
 alter table app.hiring_files enable row level security;
 alter table app.hiring_brief enable row level security;
-revoke all on table app.hiring_candidates, app.hiring_reviews, app.hiring_files, app.hiring_brief from public, anon, authenticated;
+alter table app.hiring_questions enable row level security;
+revoke all on table app.hiring_candidates, app.hiring_reviews, app.hiring_files, app.hiring_brief, app.hiring_questions from public, anon, authenticated;
 
 -- ---------- the assignment text (generated from supabase/brief/assignment.md) ----------
 -- BRIEF-START
 insert into app.hiring_brief (id, html) values (1, $brief$<h2>Your brief</h2>
 <p>You have <strong>24 hours from the moment you pressed Start</strong> to audit <strong>ezyourlife.com</strong> as if you had just joined the team, and to show us how you find problems, fix them and make the product better.</p>
 <p>EZYOURLIFE presents itself as an AI app store for small businesses in India: 445+ AI apps, websites and digital cards, 100 free credits, and pay only for results. Act as developer, tester and UX reviewer for the real product.</p>
-<p>The work should take <strong>6 to 8 focused hours</strong>, not 24. The window is there so you can fit it around your day. We would rather read a sharp, honest report than an exhausted one.</p>
+<p>The work should take <strong>7 to 9 focused hours</strong>, not 24. The window is there so you can fit it around your day. We would rather read a sharp, honest report than an exhausted one.</p>
 <p>We are not looking for a long list of cosmetic nitpicks. We are looking for:</p>
 <ul>
 <li>real bugs, each reproducible and ranked by impact</li>
@@ -149,6 +157,11 @@ insert into app.hiring_brief (id, html) values (1, $brief$<h2>Your brief</h2>
 <td>Prioritized roadmap</td>
 <td>10</td>
 </tr>
+<tr>
+<td>F</td>
+<td>Coding questions (run the tests on this page)</td>
+<td>scored separately</td>
+</tr>
 </tbody>
 </table>
 <p><strong>Part 0: Map the product (30 min).</strong> Before you test, sketch the flows you can find: first visit, sign-up and login, browsing and searching the app catalogue, running an app, spending credits, buying more, building a website or digital card, contacting support. Say which flows you could not reach and why. A short list or diagram is enough.</p>
@@ -163,6 +176,7 @@ insert into app.hiring_brief (id, html) values (1, $brief$<h2>Your brief</h2>
 <p><strong>Part C: Testing.</strong> Write a short test strategy for this product: the top risks, what you would test manually, what you would automate and why, and what you would monitor in production. Then deliver <strong>at least 10 written test cases</strong> for one critical flow (for example sign-up through first successful app run), including edge cases. Bonus: add three automated tests (Playwright, Cypress or similar) that run against a page you are allowed to test as a normal user, kept light enough not to harm the site.</p>
 <p><strong>Part D: Fix or build one improvement.</strong> You cannot touch our production code. Choose one finding and show how you would fix it: a working prototype or patch in <strong>your own public or private repo</strong>, a small component, a Lighthouse before-and-after on a clone of a static page, or a documented code-level proposal. Include what you changed, why, how you tested it, and what could go wrong. If you did not have access to our code, say what you would check in it first.</p>
 <p><strong>Part E: Roadmap.</strong> From everything you found, list your <strong>top 10 recommendations</strong> in a table ranked by impact and effort, with the reason for the order, a metric that will show success, and which 3 you would do in the first two weeks. Include one thing you would deliberately <strong>not</strong> do.</p>
+<p><strong>Part F: Coding questions (about 45 min).</strong> Below the brief on this page you will find four short JavaScript questions. Each has a code box and sample tests. Press <strong>Run tests</strong> to see which pass. Your code is saved automatically. We run extra tests you cannot see, so handle edge cases, not just the samples. You may use any tools you like, but you must be able to explain your code.</p>
 <h2>What to submit</h2>
 <p>Use the boxes on this page before your 24 hours end. Once the clock ends, everything is locked.</p>
 <ol>
@@ -174,7 +188,7 @@ insert into app.hiring_brief (id, html) values (1, $brief$<h2>Your brief</h2>
 <p>Severity scale: <strong>Critical</strong> (money, data loss, security, cannot sign up), <strong>High</strong> (core flow broken for many users), <strong>Medium</strong> (workaround exists), <strong>Low</strong> (cosmetic or rare).</p>
 <p>Be ready for a <strong>30-minute follow-up call</strong> within 48 hours of submission to walk through your findings and your code.</p>
 <h2>Suggested time plan</h2>
-<p>Plan about 7 hours of work across the window. Sleep and breaks are expected.</p>
+<p>Plan about 8 hours of work across the window. Sleep and breaks are expected.</p>
 <table>
 <thead>
 <tr>
@@ -208,12 +222,18 @@ insert into app.hiring_brief (id, html) values (1, $brief$<h2>Your brief</h2>
 <td>0:30</td>
 </tr>
 <tr>
+<td>Part F: coding questions</td>
+<td>0:45</td>
+</tr>
+<tr>
 <td>Review and write the summary</td>
 <td>0:30</td>
 </tr>
 </tbody>
 </table>$brief$)
 on conflict (id) do update set html = excluded.html;
+insert into app.hiring_questions (id, data) values (1, $q$[{"id": "q1", "title": "Credits ledger", "fn": "creditBalance", "prompt": "Every new account starts with 100 free credits. Write <code>creditBalance(events)</code>. <code>events</code> is a list processed in order, each <code>{ type, amount }</code> with a positive whole number amount. <code>buy</code> and <code>refund</code> add credits. <code>use</code> subtracts credits, but only if the balance covers it; otherwise the use is rejected and the balance does not change. Return <code>{ balance, rejected }</code> where <code>rejected</code> is how many uses were rejected.", "starter": "function creditBalance(events) {\n  // start from 100 free credits\n  \n}\n", "visible": [{"args": [[]], "expected": {"balance": 100, "rejected": 0}}, {"args": [[{"type": "use", "amount": 30}, {"type": "use", "amount": 50}]], "expected": {"balance": 20, "rejected": 0}}, {"args": [[{"type": "use", "amount": 80}, {"type": "use", "amount": 30}]], "expected": {"balance": 20, "rejected": 1}}, {"args": [[{"type": "use", "amount": 100}, {"type": "buy", "amount": 50}, {"type": "use", "amount": 120}, {"type": "refund", "amount": 20}]], "expected": {"balance": 70, "rejected": 1}}], "hidden": [{"args": [[{"type": "use", "amount": 100}, {"type": "use", "amount": 1}]], "expected": {"balance": 0, "rejected": 1}}, {"args": [[{"type": "buy", "amount": 10}]], "expected": {"balance": 110, "rejected": 0}}, {"args": [[{"type": "use", "amount": 101}]], "expected": {"balance": 100, "rejected": 1}}, {"args": [[{"type": "refund", "amount": 5}, {"type": "use", "amount": 105}]], "expected": {"balance": 0, "rejected": 0}}]}, {"id": "q2", "title": "Read a query string", "fn": "parseQuery", "prompt": "Write <code>parseQuery(qs)</code> that turns a URL query string into an object. A leading <code>?</code> is ignored. Split pairs on <code>&amp;</code> and split each pair on the <strong>first</strong> <code>=</code>. Decode percent-escapes, and treat <code>+</code> as a space. A key with no <code>=</code> gets the value <code>\"\"</code>. A key that appears more than once becomes an array of values in order; a key that appears once stays a string. Skip empty pieces such as <code>a=1&amp;&amp;b=2</code>.", "starter": "function parseQuery(qs) {\n  \n}\n", "visible": [{"args": ["?a=1&b=2"], "expected": {"a": "1", "b": "2"}}, {"args": ["name=Ravi%20Kumar&city=Indore"], "expected": {"name": "Ravi Kumar", "city": "Indore"}}, {"args": ["tag=ai&tag=app&tag=pay"], "expected": {"tag": ["ai", "app", "pay"]}}, {"args": ["q=a+b&flag"], "expected": {"q": "a b", "flag": ""}}], "hidden": [{"args": [""], "expected": {}}, {"args": ["?"], "expected": {}}, {"args": ["a=1&&b=2"], "expected": {"a": "1", "b": "2"}}, {"args": ["a=%E0%A4%A8"], "expected": {"a": "न"}}, {"args": ["k=a=b"], "expected": {"k": "a=b"}}, {"args": ["x=1&x=2&x=3&y=9"], "expected": {"x": ["1", "2", "3"], "y": "9"}}]}, {"id": "q3", "title": "Fix the pagination bug", "fn": "paginate", "prompt": "The function below should return one page of a list. Pages start at 1. It returns <code>{ items, page, totalPages, hasNext }</code>. A page below 1 is treated as page 1. A page beyond the last page returns an empty <code>items</code> list and keeps the page number given. An empty list has <code>totalPages</code> 0 and <code>hasNext</code> false. <code>hasNext</code> is true when a later page exists. It has bugs. Find them, fix them, and be ready to explain what was wrong.", "starter": "function paginate(items, page, size) {\n  const start = page * size;\n  const slice = items.slice(start, start + size);\n  const totalPages = Math.floor(items.length / size);\n  return { items: slice, page: page, totalPages: totalPages, hasNext: page < totalPages };\n}\n", "visible": [{"args": [[1, 2, 3, 4, 5], 1, 2], "expected": {"items": [1, 2], "page": 1, "totalPages": 3, "hasNext": true}}, {"args": [[1, 2, 3, 4, 5], 3, 2], "expected": {"items": [5], "page": 3, "totalPages": 3, "hasNext": false}}, {"args": [[], 1, 10], "expected": {"items": [], "page": 1, "totalPages": 0, "hasNext": false}}, {"args": [[1, 2, 3, 4], 2, 2], "expected": {"items": [3, 4], "page": 2, "totalPages": 2, "hasNext": false}}], "hidden": [{"args": [[1, 2, 3], 0, 2], "expected": {"items": [1, 2], "page": 1, "totalPages": 2, "hasNext": true}}, {"args": [[1, 2, 3], 5, 2], "expected": {"items": [], "page": 5, "totalPages": 2, "hasNext": false}}, {"args": [[1], 1, 1], "expected": {"items": [1], "page": 1, "totalPages": 1, "hasNext": false}}, {"args": [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2, 5], "expected": {"items": [6, 7, 8, 9, 10], "page": 2, "totalPages": 2, "hasNext": false}}]}, {"id": "q4", "title": "Indian mobile number check", "fn": "isValidIndianMobile", "prompt": "Write <code>isValidIndianMobile(input)</code> that returns true or false. A valid number is 10 digits and starts with 6, 7, 8 or 9. It may have one prefix: <code>+91</code>, <code>91</code> or <code>0</code>. Spaces and dashes anywhere are ignored. Any other character, or any other length, is invalid. A value that is not a string is invalid.", "starter": "function isValidIndianMobile(input) {\n  \n}\n", "visible": [{"args": ["9876543210"], "expected": true}, {"args": ["+91 98765-43210"], "expected": true}, {"args": ["5876543210"], "expected": false}, {"args": ["98765 4321"], "expected": false}], "hidden": [{"args": ["09876543210"], "expected": true}, {"args": ["919876543210"], "expected": true}, {"args": ["+919876543210x"], "expected": false}, {"args": [""], "expected": false}, {"args": ["98765432101"], "expected": false}, {"args": ["+91-6000000000"], "expected": true}, {"args": ["  9876543210  "], "expected": true}, {"args": [null], "expected": false}, {"args": ["0091 9876543210"], "expected": false}]}]$q$::jsonb)
+on conflict (id) do update set data = excluded.data;
 -- BRIEF-END
 
 -- ---------- helpers (not callable from the browser) ----------
@@ -237,7 +257,7 @@ $$;
 
 create or replace function app.hr_cand_json(c app.hiring_candidates) returns jsonb
 language sql stable as $$
-  select (to_jsonb(c) - 'answer' - 'auth_id') || jsonb_build_object(
+  select (to_jsonb(c) - 'answer' - 'auth_id' - 'code') || jsonb_build_object(
     'assignment_status', app.hr_status(c),
     'assignment_deadline', app.hr_deadline(c),
     'has_answer', coalesce(btrim(c.answer), '') <> '',
@@ -381,6 +401,8 @@ begin
   select * into c from app.hiring_candidates where id = cid;
   if c.id is null then perform app.fail(404, 'Candidate not found.'); end if;
   return jsonb_build_object('candidate', app.hr_cand_json(c), 'answer', c.answer, 'answer_updated_at', c.answer_updated_at,
+                            'code', coalesce(c.code, '{}'::jsonb),
+                            'questions', coalesce((select data from app.hiring_questions where id = 1), '[]'::jsonb),
                             'files', app.hr_files_json(cid));
 end $$;
 
@@ -396,9 +418,12 @@ end $$;
 -- ---------- what a signed-in candidate can do (only their own row, only while the clock runs) ----------
 create or replace function app.hr_my(c app.hiring_candidates) returns jsonb
 language plpgsql stable as $$
-declare st text := app.hr_status(c); brief text;
+declare st text := app.hr_status(c); brief text; qs jsonb;
 begin
-  if st <> 'not_started' then select html into brief from app.hiring_brief where id = 1; end if;
+  if st <> 'not_started' then
+    select html into brief from app.hiring_brief where id = 1;
+    select coalesce(jsonb_agg(q - 'hidden'), '[]'::jsonb) into qs from app.hiring_questions h, jsonb_array_elements(h.data) q where h.id = 1;
+  end if;
   return jsonb_build_object(
     'role', 'candidate',
     'name', c.name, 'login_id', c.login_id,
@@ -406,6 +431,7 @@ begin
     'started_at', c.assignment_started_at, 'deadline', app.hr_deadline(c),
     'submitted_at', c.assignment_submitted_at, 'server_now', now(),
     'answer', c.answer, 'answer_updated_at', c.answer_updated_at,
+    'code', coalesce(c.code, '{}'::jsonb), 'questions', coalesce(qs, '[]'::jsonb),
     'files', app.hr_files_json(c.id),
     'brief', brief);
 end $$;
@@ -429,11 +455,28 @@ end $$;
 
 create or replace function app.hr_my_answer(c app.hiring_candidates, body jsonb) returns jsonb
 language plpgsql as $$
-declare a text := coalesce(body->>'answer', '');
+declare a text; cd jsonb; k text;
 begin
   perform app.hr_my_open(c);
-  if char_length(a) > 20000 then perform app.fail(400, 'The answer is too long (20000 characters max). Put long material in a file or a link.'); end if;
-  update app.hiring_candidates set answer = a, answer_updated_at = now(), updated_at = now() where id = c.id;
+  if body ? 'answer' then
+    a := coalesce(body->>'answer', '');
+    if char_length(a) > 20000 then perform app.fail(400, 'The answer is too long (20000 characters max). Put long material in a file or a link.'); end if;
+  end if;
+  if body ? 'code' then
+    cd := body->'code';
+    if jsonb_typeof(cd) <> 'object' then perform app.fail(400, 'Code could not be saved.'); end if;
+    if (select count(*) from jsonb_object_keys(cd)) > 10 then perform app.fail(400, 'Too many code boxes.'); end if;
+    for k in select jsonb_object_keys(cd) loop
+      if k !~ '^[a-z0-9_]{1,20}$' or jsonb_typeof(cd->k) <> 'string' or char_length(cd->>k) > 20000 then
+        perform app.fail(400, 'Code for one question is too long (20000 characters max).');
+      end if;
+    end loop;
+  end if;
+  update app.hiring_candidates
+     set answer = case when body ? 'answer' then a else answer end,
+         code = case when body ? 'code' then cd else code end,
+         answer_updated_at = now(), updated_at = now()
+   where id = c.id;
   return jsonb_build_object('ok', true, 'saved_at', now());
 end $$;
 

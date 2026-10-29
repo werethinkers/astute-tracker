@@ -193,3 +193,20 @@ h4 { font-family: var(--display); margin: 1rem 0 .4rem; font-size: .95rem; }
 .inline { display: flex; gap: .6rem; }
 .inline input { flex: 1; min-width: 0; }
 @media (max-width: 720px) { .clockbar { top: 50px; } .inline { flex-direction: column; } }
+
+/* ---------- coding questions ---------- */
+.question { border-top: 1px solid var(--line); padding-top: 1rem; margin-top: 1rem; }
+.question:first-of-type { border-top: 0; }
+.prompt code, .prose code { background: var(--raised); padding: .05rem .3rem; border-radius: 4px; }
+textarea.code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .88rem; line-height: 1.45; min-height: 190px; white-space: pre; overflow: auto; tab-size: 2; background: #101214; color: #e8eae5; border-color: #101214; }
+textarea.code[readonly] { opacity: .85; }
+.results { margin-top: .5rem; }
+.testsum { font-weight: 700; margin: .3rem 0; }
+.testsum.allpass { color: var(--green); }
+.testlist { list-style: none; padding: 0; margin: 0; display: grid; gap: .35rem; }
+.testlist li { border-left: 4px solid var(--line-strong); padding: .35rem .6rem; background: var(--raised); border-radius: 0 6px 6px 0; overflow-wrap: anywhere; }
+.testlist li.pass { border-left-color: var(--green); }
+.testlist li.fail { border-left-color: var(--red); background: var(--red-tint); }
+pre.codeview { background: #101214; color: #e8eae5; padding: .7rem .85rem; border-radius: 8px; overflow: auto; max-height: 320px; font-size: .85rem; }
+.question-admin { border: 1px solid var(--line); border-radius: 8px; padding: .55rem .75rem; margin: .5rem 0; }
+.question-admin summary { cursor: pointer; font-weight: 600; }

@@ -1,0 +1,85 @@
+[
+  {
+    "id": "q1",
+    "title": "Credits ledger",
+    "fn": "creditBalance",
+    "prompt": "Every new account starts with 100 free credits. Write <code>creditBalance(events)</code>. <code>events</code> is a list processed in order, each <code>{ type, amount }</code> with a positive whole number amount. <code>buy</code> and <code>refund</code> add credits. <code>use</code> subtracts credits, but only if the balance covers it; otherwise the use is rejected and the balance does not change. Return <code>{ balance, rejected }</code> where <code>rejected</code> is how many uses were rejected.",
+    "starter": "function creditBalance(events) {\n  // start from 100 free credits\n  \n}\n",
+    "visible": [
+      { "args": [[]], "expected": { "balance": 100, "rejected": 0 } },
+      { "args": [[{ "type": "use", "amount": 30 }, { "type": "use", "amount": 50 }]], "expected": { "balance": 20, "rejected": 0 } },
+      { "args": [[{ "type": "use", "amount": 80 }, { "type": "use", "amount": 30 }]], "expected": { "balance": 20, "rejected": 1 } },
+      { "args": [[{ "type": "use", "amount": 100 }, { "type": "buy", "amount": 50 }, { "type": "use", "amount": 120 }, { "type": "refund", "amount": 20 }]], "expected": { "balance": 70, "rejected": 1 } }
+    ],
+    "hidden": [
+      { "args": [[{ "type": "use", "amount": 100 }, { "type": "use", "amount": 1 }]], "expected": { "balance": 0, "rejected": 1 } },
+      { "args": [[{ "type": "buy", "amount": 10 }]], "expected": { "balance": 110, "rejected": 0 } },
+      { "args": [[{ "type": "use", "amount": 101 }]], "expected": { "balance": 100, "rejected": 1 } },
+      { "args": [[{ "type": "refund", "amount": 5 }, { "type": "use", "amount": 105 }]], "expected": { "balance": 0, "rejected": 0 } }
+    ]
+  },
+  {
+    "id": "q2",
+    "title": "Read a query string",
+    "fn": "parseQuery",
+    "prompt": "Write <code>parseQuery(qs)</code> that turns a URL query string into an object. A leading <code>?</code> is ignored. Split pairs on <code>&amp;</code> and split each pair on the <strong>first</strong> <code>=</code>. Decode percent-escapes, and treat <code>+</code> as a space. A key with no <code>=</code> gets the value <code>\"\"</code>. A key that appears more than once becomes an array of values in order; a key that appears once stays a string. Skip empty pieces such as <code>a=1&amp;&amp;b=2</code>.",
+    "starter": "function parseQuery(qs) {\n  \n}\n",
+    "visible": [
+      { "args": ["?a=1&b=2"], "expected": { "a": "1", "b": "2" } },
+      { "args": ["name=Ravi%20Kumar&city=Indore"], "expected": { "name": "Ravi Kumar", "city": "Indore" } },
+      { "args": ["tag=ai&tag=app&tag=pay"], "expected": { "tag": ["ai", "app", "pay"] } },
+      { "args": ["q=a+b&flag"], "expected": { "q": "a b", "flag": "" } }
+    ],
+    "hidden": [
+      { "args": [""], "expected": {} },
+      { "args": ["?"], "expected": {} },
+      { "args": ["a=1&&b=2"], "expected": { "a": "1", "b": "2" } },
+      { "args": ["a=%E0%A4%A8"], "expected": { "a": "न" } },
+      { "args": ["k=a=b"], "expected": { "k": "a=b" } },
+      { "args": ["x=1&x=2&x=3&y=9"], "expected": { "x": ["1", "2", "3"], "y": "9" } }
+    ]
+  },
+  {
+    "id": "q3",
+    "title": "Fix the pagination bug",
+    "fn": "paginate",
+    "prompt": "The function below should return one page of a list. Pages start at 1. It returns <code>{ items, page, totalPages, hasNext }</code>. A page below 1 is treated as page 1. A page beyond the last page returns an empty <code>items</code> list and keeps the page number given. An empty list has <code>totalPages</code> 0 and <code>hasNext</code> false. <code>hasNext</code> is true when a later page exists. It has bugs. Find them, fix them, and be ready to explain what was wrong.",
+    "starter": "function paginate(items, page, size) {\n  const start = page * size;\n  const slice = items.slice(start, start + size);\n  const totalPages = Math.floor(items.length / size);\n  return { items: slice, page: page, totalPages: totalPages, hasNext: page < totalPages };\n}\n",
+    "visible": [
+      { "args": [[1, 2, 3, 4, 5], 1, 2], "expected": { "items": [1, 2], "page": 1, "totalPages": 3, "hasNext": true } },
+      { "args": [[1, 2, 3, 4, 5], 3, 2], "expected": { "items": [5], "page": 3, "totalPages": 3, "hasNext": false } },
+      { "args": [[], 1, 10], "expected": { "items": [], "page": 1, "totalPages": 0, "hasNext": false } },
+      { "args": [[1, 2, 3, 4], 2, 2], "expected": { "items": [3, 4], "page": 2, "totalPages": 2, "hasNext": false } }
+    ],
+    "hidden": [
+      { "args": [[1, 2, 3], 0, 2], "expected": { "items": [1, 2], "page": 1, "totalPages": 2, "hasNext": true } },
+      { "args": [[1, 2, 3], 5, 2], "expected": { "items": [], "page": 5, "totalPages": 2, "hasNext": false } },
+      { "args": [[1], 1, 1], "expected": { "items": [1], "page": 1, "totalPages": 1, "hasNext": false } },
+      { "args": [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2, 5], "expected": { "items": [6, 7, 8, 9, 10], "page": 2, "totalPages": 2, "hasNext": false } }
+    ]
+  },
+  {
+    "id": "q4",
+    "title": "Indian mobile number check",
+    "fn": "isValidIndianMobile",
+    "prompt": "Write <code>isValidIndianMobile(input)</code> that returns true or false. A valid number is 10 digits and starts with 6, 7, 8 or 9. It may have one prefix: <code>+91</code>, <code>91</code> or <code>0</code>. Spaces and dashes anywhere are ignored. Any other character, or any other length, is invalid. A value that is not a string is invalid.",
+    "starter": "function isValidIndianMobile(input) {\n  \n}\n",
+    "visible": [
+      { "args": ["9876543210"], "expected": true },
+      { "args": ["+91 98765-43210"], "expected": true },
+      { "args": ["5876543210"], "expected": false },
+      { "args": ["98765 4321"], "expected": false }
+    ],
+    "hidden": [
+      { "args": ["09876543210"], "expected": true },
+      { "args": ["919876543210"], "expected": true },
+      { "args": ["+919876543210x"], "expected": false },
+      { "args": [""], "expected": false },
+      { "args": ["98765432101"], "expected": false },
+      { "args": ["+91-6000000000"], "expected": true },
+      { "args": ["  9876543210  "], "expected": true },
+      { "args": [null], "expected": false },
+      { "args": ["0091 9876543210"], "expected": false }
+    ]
+  }
+]

@@ -54,6 +54,7 @@ let tickTimer = null;
 let toastTimer = null;
 let saveTimer = null;
 let dirtyAnswer = false;
+let subCtx = null; // admin: the open candidate's questions and code
 
 // Time on the server minus time on this device, so a wrong laptop clock cannot fool the countdown.
 const setOffset = (serverNow) => {
@@ -195,6 +196,56 @@ async function handleSession(session) {
   }
 }
 
+/* ---------- coding questions: run in a Web Worker with a time limit ---------- */
+function runTests(code, fn, cases, ms = 3000) {
+  return new Promise((resolve) => {
+    let worker;
+    try {
+      worker = new Worker("worker.js");
+    } catch {
+      return resolve({ error: "Your browser could not start the test runner." });
+    }
+    const timer = setTimeout(() => {
+      worker.terminate();
+      resolve({ error: "Timed out after 3 seconds. Is there an infinite loop?" });
+    }, ms);
+    worker.onmessage = (e) => {
+      clearTimeout(timer);
+      worker.terminate();
+      resolve(e.data);
+    };
+    worker.onerror = (e) => {
+      clearTimeout(timer);
+      worker.terminate();
+      resolve({ error: e.message || "The test runner failed." });
+    };
+    worker.postMessage({ code, fn, cases });
+  });
+}
+
+const show_ = (v) => {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+};
+
+function resultsHtml(res, cases, labelHidden = false) {
+  if (res.error) return `<p class="error" role="alert">${esc(res.error)}</p>`;
+  const passed = res.results.filter((r) => r.ok).length;
+  const rows = res.results
+    .map((r, i) => {
+      const c = cases[i];
+      const hidden = labelHidden && c.hidden;
+      return `<li class="${r.ok ? "pass" : "fail"}"><strong>${r.ok ? "Pass" : "Fail"}${hidden ? " (hidden case)" : ""}</strong>
+        <span class="mono">${esc(c.args.map(show_).join(", "))}</span>
+        ${r.ok ? "" : `<div class="small">Expected <span class="mono">${esc(show_(c.expected))}</span>, got <span class="mono">${esc(r.err ? "error: " + r.err : show_(r.got))}</span></div>`}</li>`;
+    })
+    .join("");
+  return `<p class="testsum ${passed === res.results.length ? "allpass" : ""}">${passed} of ${res.results.length} tests passed</p><ul class="testlist">${rows}</ul>`;
+}
+
 /* =====================================================================
    CANDIDATE
    ===================================================================== */
@@ -205,6 +256,7 @@ function candidateRemaining() {
 function renderCandidate() {
   const typed = $("#answer");
   if (typed && state.me.status === "running") state.me.answer = typed.value; // keep unsaved typing across a redraw
+  if (state.me.status === "running") state.me.code = collectCode();
   const m = state.me;
   const root = $("#candidate-view");
   const first = esc(String(m.name || "").split(" ")[0]);
@@ -235,6 +287,25 @@ function renderCandidate() {
     : `<div class="clockbar locked"><div><span class="small">Status</span><div class="clocktext">${status === "submitted" ? "Submitted" : "Time is up"}</div></div>
          <div class="small">${status === "submitted" ? `You submitted on ${esc(fmtDate(m.submitted_at))}.` : `The ${m.hours} hours ended ${esc(fmtDate(m.deadline))}.`} Everything is locked.</div></div>`;
 
+  const questions = (m.questions || []).length
+    ? `<div class="card"><h2>Coding questions</h2>
+        <p class="muted small">Write each function, then press Run tests. These are sample tests; we also run hidden ones, so think about edge cases. Your code saves automatically. Only plain JavaScript functions, no imports.</p>
+        ${m.questions
+          .map(
+            (q) => `<div class="question" data-q="${esc(q.id)}">
+          <h3>${esc(q.title)}</h3>
+          <p class="prompt">${q.prompt}</p>
+          <label class="visually-hidden" for="code-${esc(q.id)}">Code for ${esc(q.title)}</label>
+          <textarea id="code-${esc(q.id)}" class="code" data-code="${esc(q.id)}" spellcheck="false" autocapitalize="none" ${running ? "" : "readonly"}>${esc((m.code || {})[q.id] ?? q.starter)}</textarea>
+          <div class="actions"><button class="btn" type="button" data-act="run" data-q="${esc(q.id)}">Run tests</button>
+            <span class="small muted">${q.visible.length} sample tests</span></div>
+          <div class="results" id="res-${esc(q.id)}" aria-live="polite"></div>
+        </div>`
+          )
+          .join("")}
+      </div>`
+    : "";
+
   const files = (m.files || [])
     .map(
       (f) => `<li><span class="fname">${esc(f.name)}</span><span class="muted small">${esc(fmtSize(f.size))}</span>
@@ -244,6 +315,7 @@ function renderCandidate() {
 
   root.innerHTML = `${banner}
     ${brief}
+    ${questions}
     <div class="card">
       <h2>Your answer</h2>
       <p class="muted small">Paste your executive summary (half a page on your three most important findings), your one link to the full report (Google Drive, Notion or GitHub, opened for anyone with the link), and a short note on the tools you used, including AI tools.</p>
@@ -260,6 +332,12 @@ function renderCandidate() {
     </div>
     ${running ? `<div class="card"><h2>Finished early?</h2><p class="muted small">Submitting final locks your answer and files straight away. You cannot undo it.</p>
       <div class="actions"><button class="btn danger" type="button" data-act="finish">Submit final</button></div></div>` : ""}`;
+}
+
+function collectCode() {
+  const out = { ...(state.me?.code || {}) };
+  for (const ta of document.querySelectorAll("#candidate-view textarea.code")) out[ta.dataset.code] = ta.value;
+  return out;
 }
 
 function tickCandidate() {
@@ -289,14 +367,16 @@ async function refreshCandidate() {
 async function saveAnswer() {
   const box = $("#answer");
   if (!box || state.me?.status !== "running") return;
+  const codeNow = collectCode();
   clearTimeout(saveTimer);
   const text = box.value;
   const note = $("#savestate");
   if (note) note.textContent = "Saving...";
   try {
-    await api("PUT", "/my/answer", { answer: text });
+    await api("PUT", "/my/answer", { answer: text, code: collectCode() });
     if (box.value === text) dirtyAnswer = false;
     state.me.answer = text;
+    state.me.code = codeNow;
     if (note) note.textContent = `Saved ${new Intl.DateTimeFormat(undefined, { timeStyle: "medium" }).format(new Date(now()))}`;
   } catch (e) {
     if (note) note.textContent = "Could not save. " + e.message;
@@ -362,6 +442,18 @@ async function deleteMyFile(id) {
     toast(e.message, true);
     if (/locked|Time is up/i.test(e.message)) refreshCandidate();
   }
+}
+
+async function runQuestion(qid, btn) {
+  const q = (state.me.questions || []).find((x) => x.id === qid);
+  const ta = $(`#code-${qid}`);
+  const out = $(`#res-${qid}`);
+  if (!q || !ta || !out) return;
+  btn.disabled = true;
+  out.textContent = "Running...";
+  const res = await runTests(ta.value, q.fn, q.visible);
+  out.innerHTML = resultsHtml(res, q.visible);
+  btn.disabled = false;
 }
 
 async function startAssignment() {
@@ -643,11 +735,42 @@ async function loadSubmission(id) {
     box.innerHTML = `<h4>Answer${s.answer_updated_at ? ` <span class="muted small">(saved ${esc(fmtDate(s.answer_updated_at))})</span>` : ""}</h4>
       ${s.answer ? `<div class="answer-view">${esc(s.answer)}</div>` : '<p class="muted small">No answer written yet.</p>'}
       <h4>Files</h4>
-      <ul class="filelist">${files || '<li class="muted small">No files uploaded.</li>'}</ul>`;
+      <ul class="filelist">${files || '<li class="muted small">No files uploaded.</li>'}</ul>
+      <h4>Coding questions</h4>
+      ${
+        (s.questions || [])
+          .map((q) => {
+            const code = (s.code || {})[q.id];
+            return `<details class="question-admin" data-q="${esc(q.id)}"><summary>${esc(q.title)} ${code && code.trim() !== q.starter.trim() ? "" : '<span class="muted small">(not attempted)</span>'}</summary>
+              <pre class="codeview">${esc(code ?? "(no code saved)")}</pre>
+              <button class="btn small" type="button" data-act="admin-run" data-q="${esc(q.id)}">Run all tests (sample + hidden)</button>
+              <div class="results" id="ares-${esc(q.id)}"></div></details>`;
+          })
+          .join("") || '<p class="muted small">No coding questions loaded.</p>'
+      }`;
+    subCtx = { id, questions: s.questions || [], code: s.code || {} };
   } catch (e) {
     const box = $("#sub-box");
     if (box) box.innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
+}
+
+async function adminRun(qid, btn) {
+  if (!subCtx) return;
+  const q = subCtx.questions.find((x) => x.id === qid);
+  const out = $(`#ares-${qid}`);
+  if (!q || !out) return;
+  const code = subCtx.code[qid];
+  if (!code || !code.trim()) {
+    out.innerHTML = '<p class="muted small">No code to run.</p>';
+    return;
+  }
+  const cases = [...q.visible, ...(q.hidden || []).map((h) => ({ ...h, hidden: true }))];
+  btn.disabled = true;
+  out.textContent = "Running...";
+  const res = await runTests(code, q.fn, cases);
+  out.innerHTML = resultsHtml(res, cases, true);
+  btn.disabled = false;
 }
 
 async function downloadFile(id, fallbackName) {
@@ -808,16 +931,17 @@ function wire() {
     }
   });
   cand.addEventListener("input", (e) => {
-    if (e.target.id === "answer") queueSave();
+    if (e.target.id === "answer" || e.target.matches?.("textarea.code")) queueSave();
   });
   cand.addEventListener("focusout", (e) => {
-    if (e.target.id === "answer" && dirtyAnswer) saveAnswer();
+    if ((e.target.id === "answer" || e.target.matches?.("textarea.code")) && dirtyAnswer) saveAnswer();
   });
   cand.addEventListener("click", (e) => {
     if (e.target.id === "start-btn") return startAssignment();
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
-    if (btn.dataset.act === "file-del") deleteMyFile(btn.dataset.id);
+    if (btn.dataset.act === "run") runQuestion(btn.dataset.q, btn);
+    else if (btn.dataset.act === "file-del") deleteMyFile(btn.dataset.id);
     else if (btn.dataset.act === "finish") finishAssignment();
   });
 
@@ -833,6 +957,7 @@ function wire() {
     else if (act === "asg-reset") resetClock();
     else if (act === "file-get") downloadFile(btn.dataset.id, btn.dataset.name);
     else if (act === "copy-creds") copyCreds();
+    else if (act === "admin-run") adminRun(btn.dataset.q, btn);
   });
   drawer.addEventListener("submit", (e) => {
     e.preventDefault();
