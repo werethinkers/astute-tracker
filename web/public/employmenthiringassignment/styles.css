@@ -210,3 +210,23 @@ textarea.code[readonly] { opacity: .85; }
 pre.codeview { background: #101214; color: #e8eae5; padding: .7rem .85rem; border-radius: 8px; overflow: auto; max-height: 320px; font-size: .85rem; }
 .question-admin { border: 1px solid var(--line); border-radius: 8px; padding: .55rem .75rem; margin: .5rem 0; }
 .question-admin summary { cursor: pointer; font-weight: 600; }
+
+/* ---------- report sections ---------- */
+.count { font-family: var(--body); font-size: .8rem; font-weight: 600; color: var(--muted); background: var(--raised); border: 1px solid var(--line); border-radius: 999px; padding: .1rem .55rem; margin-left: .4rem; vertical-align: middle; }
+.count.done { color: var(--green); background: var(--green-tint); border-color: transparent; }
+.subhead { margin: 1.1rem 0 .3rem; }
+.item { border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem 1rem; margin-top: .9rem; background: #fcfcfa; }
+.item-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.attach { margin-top: .9rem; padding: .7rem .8rem; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--surface); }
+.attach .actions { margin-top: .5rem; }
+.shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .6rem; margin-top: .5rem; }
+.shot { margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--raised); }
+.shot img { display: block; width: 100%; height: 110px; object-fit: cover; background: #e8eae5; }
+.shot figcaption { display: flex; align-items: center; justify-content: space-between; gap: .3rem; padding: .25rem .4rem; font-size: .75rem; }
+.shot .fname { font-weight: 500; min-width: 0; }
+details.rv { border: 1px solid var(--line); border-radius: 8px; padding: .5rem .8rem; margin: .5rem 0; }
+details.rv > summary { cursor: pointer; font-weight: 700; font-family: var(--display); }
+.rv-item { border-top: 1px solid var(--line); padding: .7rem 0; }
+.rv-label { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
+.rv-field { margin-top: .5rem; }
+.rv-line { margin-top: .3rem; font-size: .9rem; overflow-wrap: anywhere; }

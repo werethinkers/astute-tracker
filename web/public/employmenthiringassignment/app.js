@@ -21,8 +21,8 @@ const REVIEW_STAGES = [
   { key: "office", label: "Office round" },
 ];
 const STATUS_LABEL = { not_started: "Not started", running: "In progress", submitted: "Submitted", closed: "Time ended" };
-const MAX_FILE = 5 * 1024 * 1024;
-const MAX_FILES = 10;
+const MAX_FILE = 10 * 1024 * 1024;
+const MAX_FILES = 40;
 const HOUR = 3600 * 1000;
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -253,10 +253,159 @@ function candidateRemaining() {
   return new Date(state.me.deadline).getTime() - now();
 }
 
+const LIMITS = { bugs: 25, ux: 10, roadmap: 10 };
+const PREFIX = { bugs: "b", ux: "u", roadmap: "r" };
+const NEEDED = { bugs: 8, ux: 5, roadmap: 10 };
+const SEVERITIES = ["Critical", "High", "Medium", "Low"];
+const LEVELS = ["High", "Medium", "Low"];
+const fileUrls = new Map();
+let uidN = 0;
+const uid = (k) => `f-${k}-${++uidN}`;
+const isImg = (f) => /^image\//.test(f.mime || "");
+
+function ensureReport() {
+  const r = (state.me.report ||= {});
+  r.bugs ||= [{ id: "b1" }];
+  r.ux ||= [1, 2, 3, 4, 5].map((n) => ({ id: "u" + n }));
+  r.roadmap ||= [1, 2, 3].map((n) => ({ id: "r" + n }));
+  return r;
+}
+
+const ro = () => (state.me.status === "running" ? "" : "readonly");
+const bindTop = (f) => `data-f="${f}"`;
+const bindItem = (list, id, f) => `data-f="${f}" data-list="${list}" data-id="${id}"`;
+
+function taField(label, value, bind, rows = 3, hint = "") {
+  const id = uid("t");
+  return `<label for="${id}">${esc(label)}${hint ? ` <span class="muted small">(${esc(hint)})</span>` : ""}</label>
+    <textarea id="${id}" class="rf" rows="${rows}" maxlength="20000" ${bind} ${ro()}>${esc(value)}</textarea>`;
+}
+function inField(label, value, bind, type = "text") {
+  const id = uid("i");
+  return `<label for="${id}">${esc(label)}</label><input id="${id}" class="rf" type="${type}" maxlength="${type === "url" ? 1000 : 300}" ${bind} value="${esc(value)}" ${ro()}>`;
+}
+function selField(label, value, bind, options) {
+  const id = uid("s");
+  return `<label for="${id}">${esc(label)}</label><select id="${id}" class="rf" ${bind} ${state.me.status === "running" ? "" : "disabled"}>
+    <option value="">Choose</option>${options.map((o) => `<option${o === value ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+}
+
+function attachHtml(tag, label = "Screenshots and files") {
+  const running = state.me.status === "running";
+  const files = (state.me.files || []).filter((f) => (f.tag || "gen") === tag);
+  const shots = files
+    .filter(isImg)
+    .map(
+      (f) => `<figure class="shot"><a data-fid="${esc(f.id)}" target="_blank" rel="noopener"><img data-fid="${esc(f.id)}" alt="${esc(f.name)}"></a>
+      <figcaption><span class="fname">${esc(f.name)}</span>${running ? `<button type="button" class="btn ghost small" data-act="file-del" data-id="${esc(f.id)}">Remove</button>` : ""}</figcaption></figure>`
+    )
+    .join("");
+  const others = files
+    .filter((f) => !isImg(f))
+    .map(
+      (f) => `<li><span class="fname">${esc(f.name)}</span><span class="muted small">${esc(fmtSize(f.size))}</span>
+      ${running ? `<button type="button" class="btn ghost small" data-act="file-del" data-id="${esc(f.id)}">Remove</button>` : ""}</li>`
+    )
+    .join("");
+  const input = uid("file");
+  return `<div class="attach"><div class="attach-label small muted">${esc(label)}</div>
+    ${shots ? `<div class="shots">${shots}</div>` : ""}${others ? `<ul class="filelist">${others}</ul>` : ""}
+    ${running ? `<div class="actions"><label class="btn small" for="${input}">Add screenshots or files</label>
+      <input id="${input}" type="file" multiple class="visually-hidden file-in"><span class="small muted">or paste an image here with Ctrl+V. Up to 10 MB each.</span></div>` : ""}
+    ${!shots && !others && !running ? '<p class="muted small">Nothing attached.</p>' : ""}</div>`;
+}
+
+const itemHead = (title, list, id) => `<div class="item-head"><h3>${esc(title)}</h3>${
+  state.me.status === "running" ? `<button type="button" class="btn ghost small" data-act="rm-item" data-list="${list}" data-id="${esc(id)}">Remove</button>` : ""}</div>`;
+
+function bugItem(b, i) {
+  const bd = (f) => bindItem("bugs", b.id, f);
+  return `<div class="item" data-tag="${esc(b.id)}">${itemHead(`Bug B-${pad(i + 1)}`, "bugs", b.id)}
+    <div class="grid2"><div>${inField("Title", b.title, bd("title"))}</div><div>${inField("Flow it belongs to", b.flow, bd("flow"))}</div></div>
+    <div class="grid2"><div>${selField("Severity", b.severity, bd("severity"), SEVERITIES)}</div><div>${inField("Device and browser", b.device, bd("device"))}</div></div>
+    ${taField("Steps to reproduce", b.steps, bd("steps"), 4)}
+    <div class="grid2"><div>${taField("Expected", b.expected, bd("expected"), 3)}</div><div>${taField("Actual", b.actual, bd("actual"), 3)}</div></div>
+    ${taField("Likely root cause", b.cause, bd("cause"), 3)}
+    ${taField("Suggested fix", b.fix, bd("fix"), 3)}
+    ${inField("Link to a screen recording (optional)", b.video, bd("video"), "url")}
+    ${attachHtml(b.id, "Screenshots and evidence for this bug")}
+  </div>`;
+}
+
+function uxItem(u, i) {
+  const bd = (f) => bindItem("ux", u.id, f);
+  return `<div class="item" data-tag="${esc(u.id)}">${itemHead(`UX problem ${i + 1}`, "ux", u.id)}
+    ${inField("Title", u.title, bd("title"))}
+    ${taField("What happens, with the evidence", u.evidence, bd("evidence"), 3)}
+    ${taField("Who it hurts and why", u.hurts, bd("hurts"), 2)}
+    ${taField("Your redesign", u.redesign, bd("redesign"), 3)}
+    ${attachHtml(u.id, "Screenshot, annotated screenshot or mock")}
+  </div>`;
+}
+
+function roadItem(x, i) {
+  const bd = (f) => bindItem("roadmap", x.id, f);
+  const cid = uid("c");
+  return `<div class="item">${itemHead(`#${i + 1}`, "roadmap", x.id)}
+    ${inField("Recommendation", x.rec, bd("rec"))}
+    <div class="grid2"><div>${selField("Impact", x.impact, bd("impact"), LEVELS)}</div><div>${selField("Effort", x.effort, bd("effort"), LEVELS)}</div></div>
+    ${taField("Why it is at this rank", x.why, bd("why"), 2)}
+    ${inField("Metric that will show success", x.metric, bd("metric"))}
+    <label class="check" for="${cid}"><input id="${cid}" type="checkbox" ${bd("first2")} ${x.first2 ? "checked" : ""} ${state.me.status === "running" ? "" : "disabled"}> One of my first three for the first two weeks</label>
+  </div>`;
+}
+
+const filled = (o) => Object.entries(o).some(([k, v]) => k !== "id" && typeof v === "string" && v.trim());
+function updateCounts() {
+  const r = state.me.report || {};
+  for (const list of ["bugs", "ux", "roadmap"]) {
+    const el = document.querySelector(`[data-count="${list}"]`);
+    if (!el) continue;
+    const n = (r[list] || []).filter(filled).length;
+    el.textContent = `${n} of ${NEEDED[list]}${list === "bugs" ? " needed" : list === "ux" ? " needed" : ""}`;
+    el.classList.toggle("done", n >= NEEDED[list]);
+  }
+}
+
+function setField(el) {
+  const r = ensureReport();
+  const val = el.type === "checkbox" ? el.checked : el.value;
+  if (el.dataset.list) {
+    const item = (r[el.dataset.list] || []).find((x) => x.id === el.dataset.id);
+    if (item) item[el.dataset.f] = val;
+  } else r[el.dataset.f] = val;
+}
+
+async function fetchMyFile(id) {
+  return api("GET", `/my/files/${id}`);
+}
+
+// Fills screenshot thumbnails. Images are fetched once and kept as object URLs.
+async function loadImages(fetcher, root = document) {
+  for (const img of root.querySelectorAll("img[data-fid]")) {
+    const id = img.dataset.fid;
+    if (!fileUrls.has(id)) {
+      try {
+        const f = await fetcher(id);
+        const bin = atob(f.data);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        fileUrls.set(id, URL.createObjectURL(new Blob([bytes], { type: f.mime || "image/jpeg" })));
+      } catch {
+        continue;
+      }
+    }
+    img.src = fileUrls.get(id);
+    const link = img.closest("a");
+    if (link) link.href = fileUrls.get(id);
+  }
+}
+
 function renderCandidate() {
-  const typed = $("#answer");
-  if (typed && state.me.status === "running") state.me.answer = typed.value; // keep unsaved typing across a redraw
-  if (state.me.status === "running") state.me.code = collectCode();
+  const scrollY = window.scrollY;
+  if (state.me.status === "running") state.me.code = collectCode(); // keep unsaved typing across a redraw
+  uidN = 0;
+  requestAnimationFrame(() => window.scrollTo(0, scrollY));
   const m = state.me;
   const root = $("#candidate-view");
   const first = esc(String(m.name || "").split(" ")[0]);
@@ -270,9 +419,9 @@ function renderCandidate() {
       <p>You have <strong>${m.hours} hours</strong> to complete it, counted from the moment you press <strong>Start</strong>. The clock cannot be paused or restarted by you.</p>
       <ul class="plain">
         <li>The brief appears as soon as you press Start.</li>
-        <li>Write your answer and upload your files on this page. Your answer saves automatically.</li>
+        <li>Everything is done on this page: type your work, attach screenshots and files to each finding, and answer the coding questions. It all saves automatically.</li>
         <li>When the clock reaches zero, or when you press Submit final, everything is locked and nothing can be changed.</li>
-        <li>Plan for about 6 to 8 focused hours. Take breaks and sleep.</li>
+        <li>Plan for about 7 to 9 focused hours. Take breaks and sleep.</li>
       </ul>
       <label class="check"><input id="ready" type="checkbox"> I am ready and I understand the clock starts now.</label>
       <div class="actions"><button class="btn primary" id="start-btn" type="button" disabled>Start the ${m.hours}-hour clock</button></div>
@@ -306,32 +455,80 @@ function renderCandidate() {
       </div>`
     : "";
 
-  const files = (m.files || [])
-    .map(
-      (f) => `<li><span class="fname">${esc(f.name)}</span><span class="muted small">${esc(fmtSize(f.size))}</span>
-      ${running ? `<button type="button" class="btn ghost small" data-act="file-del" data-id="${esc(f.id)}">Remove</button>` : ""}</li>`
-    )
-    .join("");
+  const r = ensureReport();
+  const T = (label, key, rows, hint) => taField(label, r[key], bindTop(key), rows, hint);
+  const bugs = r.bugs.map((x, i) => bugItem(x, i)).join("");
+  const uxs = r.ux.map((x, i) => uxItem(x, i)).join("");
+  const road = r.roadmap.map((x, i) => roadItem(x, i)).join("");
+  const add = (list, label) => (running && r[list].length < LIMITS[list] ? `<div class="actions"><button class="btn" type="button" data-act="add-item" data-list="${list}">${label}</button></div>` : "");
 
   root.innerHTML = `${banner}
     ${brief}
-    ${questions}
+    <div class="card" data-tag="p0">
+      <h2>Part 0 · Map the product</h2>
+      <p class="muted small">The flows you found, and the ones you could not reach and why. A short list is enough. You can attach a sketch or diagram.</p>
+      ${T("Your map", "part0", 7)}
+      ${attachHtml("p0")}
+    </div>
+
     <div class="card">
-      <h2>Your answer</h2>
-      <p class="muted small">Paste your executive summary (half a page on your three most important findings), your one link to the full report (Google Drive, Notion or GitHub, opened for anyone with the link), and a short note on the tools you used, including AI tools.</p>
-      <label class="visually-hidden" for="answer">Your answer</label>
-      <textarea id="answer" class="answer" maxlength="20000" ${running ? "" : "readonly"}>${esc(m.answer || "")}</textarea>
+      <h2>Part A · Bug hunt <span class="count" data-count="bugs"></span></h2>
+      <p class="muted small">At least 8 real issues across at least 3 flows, with at least one deeper cause. Attach a screenshot to each (paste it with Ctrl+V while you are inside the bug).</p>
+      ${bugs}${add("bugs", "Add another bug")}
+    </div>
+
+    <div class="card" data-tag="pb">
+      <h2>Part B · UX audit <span class="count" data-count="ux"></span></h2>
+      <p class="muted small">You are a shopkeeper in a small Indian town on a mid-range phone and patchy 4G.</p>
+      ${T("The first five minutes: what confused you, where you hesitated or would have left", "ux_first5", 5)}
+      <h3 class="subhead">Five specific UX problems</h3>
+      ${uxs}${add("ux", "Add another UX problem")}
+      ${T("Accessibility on one key page", "ux_a11y", 4, "keyboard, contrast, labels, touch targets, screen reader")}
+      ${T("Clarity of the promise", "ux_promise", 4, "do “pay only for results” and “100 free credits” make sense, and when are credits used?")}
+      ${attachHtml("pb", "Other Part B screenshots, sketches and mocks")}
+    </div>
+
+    <div class="card" data-tag="pc">
+      <h2>Part C · Testing</h2>
+      ${T("Test strategy", "test_strategy", 7, "top risks, what to test by hand, what to automate and why, what to monitor in production")}
+      ${T("At least 10 test cases for one critical flow", "test_cases", 12, "ID, steps, expected result, edge cases")}
+      ${T("Automated tests (bonus)", "test_auto", 5, "paste code or describe; you can attach files too")}
+      ${attachHtml("pc")}
+    </div>
+
+    <div class="card" data-tag="pd">
+      <h2>Part D · Fix or build one improvement</h2>
+      <label for="${uid("fix_link")}">Link to your repo, prototype or patch</label>
+      <input id="${uid("fix_link")}" class="rf" type="url" maxlength="1000" placeholder="https://" ${bindTop("fix_link")} value="${esc(r.fix_link)}" ${ro()}>
+      ${T("Which finding, and what you changed and why", "fix_what", 6)}
+      ${T("How you tested it", "fix_how", 4)}
+      ${T("What could go wrong", "fix_risks", 4)}
+      ${attachHtml("pd", "Patch files, before-and-after screenshots, Lighthouse reports")}
+    </div>
+
+    <div class="card">
+      <h2>Part E · Roadmap <span class="count" data-count="roadmap"></span></h2>
+      <p class="muted small">Your top 10 recommendations, in ranked order. Tick the 3 you would do in the first two weeks.</p>
+      ${road}${add("roadmap", "Add another recommendation")}
+      ${T("One thing you would deliberately not do, and why", "roadmap_not", 3)}
+    </div>
+
+    ${questions}
+
+    <div class="card" data-tag="gen">
+      <h2>Wrap-up</h2>
+      ${T("Executive summary", "summary", 8, "half a page: your three most important findings")}
+      ${T("Tools you used, including AI tools, and where you disagreed with them", "tools", 4)}
+      <label for="${uid("link")}">Link to a full report or folder (optional)</label>
+      <input id="${uid("link")}" class="rf" type="url" maxlength="1000" placeholder="https://" ${bindTop("link")} value="${esc(r.link)}" ${ro()}>
+      ${attachHtml("gen", "Any other files (report PDF, spreadsheets, recordings)")}
       <div class="small muted" id="savestate">${running ? (m.answer_updated_at ? `Saved ${esc(fmtDate(m.answer_updated_at))}` : "Nothing saved yet") : ""}</div>
     </div>
-    <div class="card">
-      <h2>Your files</h2>
-      <p class="muted small">Report, bug log, evidence and the Part D README. Up to ${MAX_FILES} files, 5 MB each. For anything larger, put it in your linked folder.</p>
-      <ul class="filelist" id="filelist">${files || '<li class="muted small">No files yet.</li>'}</ul>
-      ${running ? `<div class="actions"><label class="btn" for="file-input">Choose files</label>
-        <input id="file-input" type="file" multiple class="visually-hidden"><span class="small muted" id="upload-state"></span></div>` : ""}
-    </div>
-    ${running ? `<div class="card"><h2>Finished early?</h2><p class="muted small">Submitting final locks your answer and files straight away. You cannot undo it.</p>
+
+    ${running ? `<div class="card"><h2>Finished early?</h2><p class="muted small">Submitting final locks everything straight away. You cannot undo it.</p>
       <div class="actions"><button class="btn danger" type="button" data-act="finish">Submit final</button></div></div>` : ""}`;
+  updateCounts();
+  loadImages(fetchMyFile);
 }
 
 function collectCode() {
@@ -365,21 +562,22 @@ async function refreshCandidate() {
 }
 
 async function saveAnswer() {
-  const box = $("#answer");
-  if (!box || state.me?.status !== "running") return;
-  const codeNow = collectCode();
+  if (state.role !== "candidate" || state.me?.status !== "running") return;
   clearTimeout(saveTimer);
-  const text = box.value;
   const note = $("#savestate");
   if (note) note.textContent = "Saving...";
+  const codeNow = collectCode();
+  const snapshot = JSON.stringify(state.me.report || {});
   try {
-    await api("PUT", "/my/answer", { answer: text, code: collectCode() });
-    if (box.value === text) dirtyAnswer = false;
-    state.me.answer = text;
+    await api("PUT", "/my/answer", { report: state.me.report || {}, code: codeNow });
+    if (JSON.stringify(state.me.report || {}) === snapshot) dirtyAnswer = false;
     state.me.code = codeNow;
-    if (note) note.textContent = `Saved ${new Intl.DateTimeFormat(undefined, { timeStyle: "medium" }).format(new Date(now()))}`;
+    const when = `Saved ${new Intl.DateTimeFormat(undefined, { timeStyle: "medium" }).format(new Date(now()))}`;
+    const n = $("#savestate");
+    if (n) n.textContent = when;
   } catch (e) {
-    if (note) note.textContent = "Could not save. " + e.message;
+    const n = $("#savestate");
+    if (n) n.textContent = "Could not save. " + e.message;
     if (/locked|Time is up/i.test(e.message)) refreshCandidate();
   }
 }
@@ -400,37 +598,95 @@ const readBase64 = (file) =>
     r.readAsDataURL(file);
   });
 
-async function uploadFiles(fileList) {
-  const note = $("#upload-state");
+// Screenshots are shrunk in the browser (max 1800 px, JPEG) so they stay small and upload fast.
+async function prepareFile(file) {
+  if (!/^image\/(png|jpeg|webp|bmp)$/.test(file.type) || typeof createImageBitmap !== "function") return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+    if (scale === 1 && file.size <= 600 * 1024) return file;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.85));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
+let uploading = false;
+async function uploadFiles(fileList, tag = "gen") {
+  if (uploading) return toast("Wait for the current upload to finish.", true);
+  uploading = true;
   const files = [...fileList];
-  for (const [i, file] of files.entries()) {
-    if (file.size > MAX_FILE) {
-      toast(`${file.name} is over 5 MB. Put it in your linked folder instead.`, true);
-      continue;
+  try {
+    for (const [i, original] of files.entries()) {
+      if (original.size === 0) {
+        toast(`${original.name || "That file"} is empty.`, true);
+        continue;
+      }
+      if ((state.me.files || []).length >= MAX_FILES) {
+        toast(`You can upload at most ${MAX_FILES} files.`, true);
+        break;
+      }
+      const file = await prepareFile(original);
+      if (file.size > MAX_FILE) {
+        toast(`${file.name} is over 10 MB. Put it in a Drive folder and paste the link instead.`, true);
+        continue;
+      }
+      const note = $("#savestate");
+      if (note) note.textContent = `Uploading ${i + 1} of ${files.length}: ${file.name || "image"}`;
+      try {
+        const data = await readBase64(file);
+        const res = await api("POST", "/my/files", { name: file.name || "screenshot.png", mime: file.type || "application/octet-stream", tag, data });
+        state.me.files = res.files;
+        renderCandidate();
+      } catch (e) {
+        toast(e.message, true);
+        if (/locked|Time is up/i.test(e.message)) return refreshCandidate();
+      }
     }
-    if (file.size === 0) {
-      toast(`${file.name} is empty.`, true);
-      continue;
-    }
-    if ((state.me.files || []).length >= MAX_FILES) {
-      toast(`You can upload at most ${MAX_FILES} files.`, true);
-      break;
-    }
-    if (note) note.textContent = `Uploading ${i + 1} of ${files.length}: ${file.name}`;
-    try {
-      const data = await readBase64(file);
-      const res = await api("POST", "/my/files", { name: file.name, mime: file.type || "application/octet-stream", data });
-      state.me.files = res.files;
-      renderCandidate();
-      const again = $("#upload-state");
-      if (again) again.textContent = "";
-    } catch (e) {
-      toast(e.message, true);
-      if (/locked|Time is up/i.test(e.message)) return refreshCandidate();
+  } finally {
+    uploading = false;
+    if (dirtyAnswer) saveAnswer();
+    else {
+      const n = $("#savestate");
+      if (n && /^Uploading/.test(n.textContent)) n.textContent = "Uploaded.";
     }
   }
-  const last = $("#upload-state");
-  if (last) last.textContent = "";
+}
+
+async function removeItem(list, id) {
+  const r = ensureReport();
+  const mine = (state.me.files || []).filter((f) => f.tag === id);
+  const item = (r[list] || []).find((x) => x.id === id);
+  if ((filled(item || {}) || mine.length) && !confirm("Remove this item and its attachments?")) return;
+  for (const f of mine) {
+    try {
+      const res = await api("DELETE", `/my/files/${f.id}`);
+      state.me.files = res.files;
+    } catch (e) {
+      return toast(e.message, true);
+    }
+  }
+  r[list] = r[list].filter((x) => x.id !== id);
+  renderCandidate();
+  await saveAnswer();
+}
+
+function addItem(list) {
+  const r = ensureReport();
+  if (r[list].length >= LIMITS[list]) return;
+  const n = Math.max(0, ...r[list].map((x) => Number(String(x.id).slice(1)) || 0)) + 1;
+  r[list].push({ id: PREFIX[list] + n });
+  renderCandidate();
+  queueSave();
 }
 
 async function deleteMyFile(id) {
@@ -732,9 +988,9 @@ async function loadSubmission(id) {
         <button type="button" class="btn small" data-act="file-get" data-id="${esc(f.id)}" data-name="${esc(f.name)}">Download</button></li>`
       )
       .join("");
-    box.innerHTML = `<h4>Answer${s.answer_updated_at ? ` <span class="muted small">(saved ${esc(fmtDate(s.answer_updated_at))})</span>` : ""}</h4>
-      ${s.answer ? `<div class="answer-view">${esc(s.answer)}</div>` : '<p class="muted small">No answer written yet.</p>'}
-      <h4>Files</h4>
+    box.innerHTML = `<h4>Report${s.answer_updated_at ? ` <span class="muted small">(saved ${esc(fmtDate(s.answer_updated_at))})</span>` : ""}</h4>
+      ${reportViewHtml(s.report || {}, s.files || [], s.answer)}
+      <h4>All files</h4>
       <ul class="filelist">${files || '<li class="muted small">No files uploaded.</li>'}</ul>
       <h4>Coding questions</h4>
       ${
@@ -749,10 +1005,46 @@ async function loadSubmission(id) {
           .join("") || '<p class="muted small">No coding questions loaded.</p>'
       }`;
     subCtx = { id, questions: s.questions || [], code: s.code || {} };
+    loadImages((fid) => api("GET", `/files/${fid}`), box);
   } catch (e) {
     const box = $("#sub-box");
     if (box) box.innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
+}
+
+/* ---------- admin: read-only view of a candidate's report ---------- */
+function reportViewHtml(r, files, legacyAnswer) {
+  const att = (tag) => {
+    const mine = files.filter((f) => (f.tag || "gen") === tag);
+    if (!mine.length) return "";
+    const shots = mine.filter(isImg).map((f) => `<figure class="shot"><a data-fid="${esc(f.id)}" target="_blank" rel="noopener"><img data-fid="${esc(f.id)}" alt="${esc(f.name)}"></a><figcaption class="fname">${esc(f.name)}</figcaption></figure>`).join("");
+    const rest = mine.filter((f) => !isImg(f)).map((f) => `<li><span class="fname">${esc(f.name)}</span> <button type="button" class="btn small" data-act="file-get" data-id="${esc(f.id)}" data-name="${esc(f.name)}">Download</button></li>`).join("");
+    return `${shots ? `<div class="shots">${shots}</div>` : ""}${rest ? `<ul class="filelist">${rest}</ul>` : ""}`;
+  };
+  const txt = (label, v) => (v && String(v).trim() ? `<div class="rv-field"><div class="rv-label">${esc(label)}</div><div class="answer-view">${esc(v)}</div></div>` : "");
+  const line = (label, v) => (v && String(v).trim() ? `<div class="rv-line"><span class="rv-label">${esc(label)}</span> ${esc(v)}</div>` : "");
+  const link = (label, v) => (isHttpUrl(v) ? `<div class="rv-line"><span class="rv-label">${esc(label)}</span> <a href="${esc(v)}" target="_blank" rel="noopener noreferrer">${esc(v)}</a></div>` : "");
+  const sec = (title, inner) => `<details class="rv" open><summary>${esc(title)}</summary>${inner || '<p class="muted small">Nothing written.</p>'}</details>`;
+  const used = (list) => (list || []).filter((x) => filled(x) || files.some((f) => f.tag === x.id));
+
+  const bugs = used(r.bugs).map((b, i) => `<div class="rv-item"><strong>B-${pad(i + 1)} ${esc(b.title || "(no title)")}</strong>
+    ${b.severity ? `<span class="chip ${b.severity === "Critical" || b.severity === "High" ? "bad" : b.severity === "Medium" ? "warn" : ""}">${esc(b.severity)}</span>` : ""}
+    ${line("Flow", b.flow)}${line("Device", b.device)}${txt("Steps", b.steps)}${txt("Expected", b.expected)}${txt("Actual", b.actual)}${txt("Likely cause", b.cause)}${txt("Suggested fix", b.fix)}${link("Recording", b.video)}${att(b.id)}</div>`).join("");
+  const ux = used(r.ux).map((u, i) => `<div class="rv-item"><strong>UX ${i + 1} ${esc(u.title || "(no title)")}</strong>
+    ${txt("Evidence", u.evidence)}${txt("Who it hurts", u.hurts)}${txt("Redesign", u.redesign)}${att(u.id)}</div>`).join("");
+  const road = used(r.roadmap).map((x, i) => `<div class="rv-item"><strong>#${i + 1} ${esc(x.rec || "(empty)")}</strong>
+    ${x.impact ? `<span class="chip">Impact ${esc(x.impact)}</span>` : ""}${x.effort ? `<span class="chip">Effort ${esc(x.effort)}</span>` : ""}${x.first2 ? '<span class="chip good">First 2 weeks</span>' : ""}
+    ${txt("Why this rank", x.why)}${line("Metric", x.metric)}</div>`).join("");
+
+  return [
+    sec("Wrap-up: summary and tools", txt("Executive summary", r.summary) + txt("Tools used", r.tools) + link("Link", r.link) + att("gen") + (legacyAnswer ? txt("Earlier answer box", legacyAnswer) : "")),
+    sec(`Part A · Bugs (${used(r.bugs).length})`, bugs),
+    sec(`Part B · UX audit (${used(r.ux).length} problems)`, txt("First five minutes", r.ux_first5) + ux + txt("Accessibility", r.ux_a11y) + txt("Clarity of the promise", r.ux_promise) + att("pb")),
+    sec("Part C · Testing", txt("Strategy", r.test_strategy) + txt("Test cases", r.test_cases) + txt("Automated tests", r.test_auto) + att("pc")),
+    sec("Part D · Fix or improvement", link("Repo or prototype", r.fix_link) + txt("What and why", r.fix_what) + txt("How tested", r.fix_how) + txt("What could go wrong", r.fix_risks) + att("pd")),
+    sec(`Part E · Roadmap (${used(r.roadmap).length})`, road + txt("Would not do", r.roadmap_not)),
+    sec("Part 0 · Product map", txt("Map", r.part0) + att("p0")),
+  ].join("");
 }
 
 async function adminRun(qid, btn) {
@@ -924,17 +1216,37 @@ function wire() {
 
   const cand = $("#candidate-view");
   cand.addEventListener("change", (e) => {
-    if (e.target.id === "ready") $("#start-btn").disabled = !e.target.checked;
-    if (e.target.id === "file-input") {
-      uploadFiles(e.target.files);
-      e.target.value = "";
+    const t = e.target;
+    if (t.id === "ready") $("#start-btn").disabled = !t.checked;
+    if (t.classList?.contains("file-in")) {
+      const tag = t.closest("[data-tag]")?.dataset.tag || "gen";
+      uploadFiles(t.files, tag);
+      t.value = "";
+    } else if (t.dataset?.f && (t.tagName === "SELECT" || t.type === "checkbox")) {
+      setField(t);
+      updateCounts();
+      queueSave();
     }
   });
   cand.addEventListener("input", (e) => {
-    if (e.target.id === "answer" || e.target.matches?.("textarea.code")) queueSave();
+    const t = e.target;
+    if (t.matches?.("textarea.code")) return queueSave();
+    if (t.dataset?.f && t.tagName !== "SELECT" && t.type !== "checkbox") {
+      setField(t);
+      updateCounts();
+      queueSave();
+    }
   });
   cand.addEventListener("focusout", (e) => {
-    if ((e.target.id === "answer" || e.target.matches?.("textarea.code")) && dirtyAnswer) saveAnswer();
+    if ((e.target.matches?.(".rf") || e.target.matches?.("textarea.code")) && dirtyAnswer) saveAnswer();
+  });
+  cand.addEventListener("paste", (e) => {
+    if (state.me?.status !== "running") return;
+    const imgs = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/"));
+    if (!imgs.length) return;
+    e.preventDefault();
+    const tag = e.target.closest("[data-tag]")?.dataset.tag || "gen";
+    uploadFiles(imgs, tag);
   });
   cand.addEventListener("click", (e) => {
     if (e.target.id === "start-btn") return startAssignment();
@@ -943,6 +1255,8 @@ function wire() {
     if (btn.dataset.act === "run") runQuestion(btn.dataset.q, btn);
     else if (btn.dataset.act === "file-del") deleteMyFile(btn.dataset.id);
     else if (btn.dataset.act === "finish") finishAssignment();
+    else if (btn.dataset.act === "add-item") addItem(btn.dataset.list);
+    else if (btn.dataset.act === "rm-item") removeItem(btn.dataset.list, btn.dataset.id);
   });
 
   const drawer = $("#drawer");

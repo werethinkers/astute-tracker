@@ -48,6 +48,7 @@ alter table app.hiring_candidates add column if not exists assignment_started_at
 alter table app.hiring_candidates add column if not exists answer text;
 alter table app.hiring_candidates add column if not exists answer_updated_at timestamptz;
 alter table app.hiring_candidates add column if not exists code jsonb;
+alter table app.hiring_candidates add column if not exists report jsonb;
 do $$ begin
   if not exists (select 1 from pg_constraint where conname = 'hiring_answer_len') then
     alter table app.hiring_candidates add constraint hiring_answer_len check (answer is null or char_length(answer) <= 20000);
@@ -59,10 +60,22 @@ create table if not exists app.hiring_files (
   candidate_id bigint not null references app.hiring_candidates(id) on delete cascade,
   name         text not null check (char_length(name) between 1 and 150),
   mime         text not null default 'application/octet-stream' check (char_length(mime) <= 120),
-  size         integer not null check (size > 0 and size <= 5242880),
+  size         integer not null,
   data         bytea not null,
   created_at   timestamptz not null default now()
 );
+alter table app.hiring_files drop constraint if exists hiring_files_size_check;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'hiring_files_size_ok') then
+    alter table app.hiring_files add constraint hiring_files_size_ok check (size > 0 and size <= 10485760);
+  end if;
+end $$;
+alter table app.hiring_files add column if not exists tag text not null default 'gen';
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'hiring_files_tag') then
+    alter table app.hiring_files add constraint hiring_files_tag check (tag ~ '^[a-z0-9_]{1,12}$');
+  end if;
+end $$;
 create index if not exists hiring_files_candidate_idx on app.hiring_files (candidate_id);
 
 create table if not exists app.hiring_brief (
@@ -88,7 +101,7 @@ revoke all on table app.hiring_candidates, app.hiring_reviews, app.hiring_files,
 -- BRIEF-START
 insert into app.hiring_brief (id, html) values (1, $brief$<h2>Your brief</h2>
 <p>You have <strong>24 hours from the moment you pressed Start</strong> to audit <strong>ezyourlife.com</strong> as if you had just joined the team, and to show us how you find problems, fix them and make the product better.</p>
-<p>EZYOURLIFE presents itself as an AI app store for small businesses in India: 445+ AI apps, websites and digital cards, 100 free credits, and pay only for results. Act as developer, tester and UX reviewer for the real product.</p>
+<p>EZYOURLIFE presents itself as an AI app store for small businesses in India: 445+ AI apps, websites and digital cards, 100 free credits, and pay only for results. You act as developer, tester and UX reviewer for the real product.</p>
 <p>The work should take <strong>7 to 9 focused hours</strong>, not 24. The window is there so you can fit it around your day. We would rather read a sharp, honest report than an exhausted one.</p>
 <p>We are not looking for a long list of cosmetic nitpicks. We are looking for:</p>
 <ul>
@@ -99,24 +112,9 @@ insert into app.hiring_brief (id, html) values (1, $brief$<h2>Your brief</h2>
 <li>a prioritized roadmap that shows business judgment</li>
 </ul>
 <p>You may use any tools you like, including AI assistants. You must be able to explain every finding and every line of code in a follow-up call. Findings you cannot explain will count against you.</p>
-<h2>Rules of engagement</h2>
-<p>This is a live product with real users. Test it the way a careful new employee would.</p>
-<p><strong>Allowed</strong></p>
-<ul>
-<li>Using the site as a normal user on your own test account, with test data only</li>
-<li>Using free credits to try apps; browser dev tools, Lighthouse, axe, WAVE and screen readers</li>
-<li>Testing on different devices, screen sizes, browsers and slow-network throttling</li>
-<li>Reading the page source and the network requests your own browser makes</li>
-</ul>
-<p><strong>Not allowed</strong></p>
-<ul>
-<li>Load, stress or denial-of-service testing, or automated scanning and crawling at high rates</li>
-<li>Trying to access any other user's data, accounts, files or admin areas</li>
-<li>Exploiting a security weakness beyond proving it exists. If you find one, stop, write down the minimum steps, and report it. Do not demonstrate it further.</li>
-<li>Making real payments with someone else's card, spamming forms, or sending messages to real people</li>
-<li>Sharing screenshots, findings or credentials publicly, or posting this assignment online</li>
-</ul>
-<p>If you find something that looks like a <strong>security issue or exposed personal data</strong>, tell us immediately by message, in addition to your report. Good judgment here is a strong positive signal. Anything that breaks these rules ends the assignment.</p>
+<h2>How you submit</h2>
+<p><strong>Everything is done on this page.</strong> Each part below has its own section. Type your work into the boxes, add <strong>screenshots and files straight to the bug or finding they belong to</strong> (use Choose files, or paste an image with Ctrl+V / Cmd+V while the cursor is in that item), and it all saves automatically. Nothing needs to be emailed. When the clock ends, or when you press Submit final, everything is locked.</p>
+<p>Use a dedicated test account on the site with test data only. If you find something that looks like a <strong>security issue or exposed personal data</strong>, tell us immediately by message, in addition to your report. Good judgment here is a strong positive signal.</p>
 <h2>Tasks</h2>
 <table>
 <thead>
@@ -164,28 +162,21 @@ insert into app.hiring_brief (id, html) values (1, $brief$<h2>Your brief</h2>
 </tr>
 </tbody>
 </table>
-<p><strong>Part 0: Map the product (30 min).</strong> Before you test, sketch the flows you can find: first visit, sign-up and login, browsing and searching the app catalogue, running an app, spending credits, buying more, building a website or digital card, contacting support. Say which flows you could not reach and why. A short list or diagram is enough.</p>
-<p><strong>Part A: Bug hunt.</strong> Find at least <strong>8 real issues</strong> across functionality, data, performance, responsiveness, browser support and content. Cover at least three different flows. For each, give the steps to reproduce, expected vs actual result, device and browser, evidence, severity and likely root cause. Include at least one issue you think has <strong>a deeper cause</strong> (for example state, caching, validation or API behaviour), not only what is visible on screen. If you find fewer than eight real ones, report what you found; padding with weak items costs points.</p>
+<p><strong>Part 0: Map the product (30 min).</strong> Before you test, sketch the flows you can find: first visit, sign-up and login, browsing and searching the app catalogue, running an app, spending credits, buying more, building a website or digital card, contacting support. Say which flows you could not reach and why. A short list is enough. You can attach a diagram or sketch.</p>
+<p><strong>Part A: Bug hunt.</strong> Find at least <strong>8 real issues</strong> across functionality, data, performance, responsiveness, browser support and content. Cover at least three different flows. For each, log the steps to reproduce, expected vs actual result, device and browser, severity and likely root cause, and <strong>attach a screenshot or short screen recording</strong> (under 90 seconds) as evidence. Include at least one issue you think has <strong>a deeper cause</strong> (for example state, caching, validation or API behaviour), not only what is visible on screen. If you find fewer than eight real ones, report what you found; padding with weak items costs points.</p>
+<p>Severity scale: <strong>Critical</strong> (money, data loss, security, cannot sign up), <strong>High</strong> (core flow broken for many users), <strong>Medium</strong> (workaround exists), <strong>Low</strong> (cosmetic or rare).</p>
 <p><strong>Part B: UX audit.</strong> Pretend you are a shopkeeper in a small Indian town who has never used an AI tool, on a mid-range phone and a patchy 4G connection. Walk through first-time use and complete one real task, such as making a bill or a digital card. Report:</p>
 <ul>
 <li>the first five minutes: what was confusing, what made you hesitate or leave</li>
-<li>five specific UX problems, each with evidence, who it hurts, and a concrete redesign shown as a sketch, annotated screenshot or short Figma or HTML mock</li>
+<li>five specific UX problems, each with evidence (screenshot), who it hurts, and a concrete redesign shown as a sketch, annotated screenshot or short mock</li>
 <li>accessibility: keyboard use, contrast, labels, touch target size, screen-reader behaviour on one key page</li>
 <li>clarity of the promise: do "pay only for results" and "100 free credits" make sense, and when and how are credits used</li>
 </ul>
-<p><strong>Part C: Testing.</strong> Write a short test strategy for this product: the top risks, what you would test manually, what you would automate and why, and what you would monitor in production. Then deliver <strong>at least 10 written test cases</strong> for one critical flow (for example sign-up through first successful app run), including edge cases. Bonus: add three automated tests (Playwright, Cypress or similar) that run against a page you are allowed to test as a normal user, kept light enough not to harm the site.</p>
-<p><strong>Part D: Fix or build one improvement.</strong> You cannot touch our production code. Choose one finding and show how you would fix it: a working prototype or patch in <strong>your own public or private repo</strong>, a small component, a Lighthouse before-and-after on a clone of a static page, or a documented code-level proposal. Include what you changed, why, how you tested it, and what could go wrong. If you did not have access to our code, say what you would check in it first.</p>
-<p><strong>Part E: Roadmap.</strong> From everything you found, list your <strong>top 10 recommendations</strong> in a table ranked by impact and effort, with the reason for the order, a metric that will show success, and which 3 you would do in the first two weeks. Include one thing you would deliberately <strong>not</strong> do.</p>
-<p><strong>Part F: Coding questions (about 45 min).</strong> Below the brief on this page you will find four short JavaScript questions. Each has a code box and sample tests. Press <strong>Run tests</strong> to see which pass. Your code is saved automatically. We run extra tests you cannot see, so handle edge cases, not just the samples. You may use any tools you like, but you must be able to explain your code.</p>
-<h2>What to submit</h2>
-<p>Use the boxes on this page before your 24 hours end. Once the clock ends, everything is locked.</p>
-<ol>
-<li><strong>Answer box:</strong> paste your executive summary (half a page on your three most important findings) and <strong>one link</strong> (Google Drive, Notion or GitHub) to your full report. Make sure the link opens for anyone who has it.</li>
-<li><strong>Upload your files</strong> on this page: the report (PDF or doc, 6 pages max plus appendix), the bug log (spreadsheet or table), the evidence (screenshots, short screen recordings under 90 seconds each, Lighthouse or network exports), and the Part D README or patch. Files must be 5 MB or smaller each, up to 10 files. If something is bigger, put it in your linked folder.</li>
-<li><strong>A short note</strong> in the answer box on which tools you used, including AI tools, and where you disagreed with them.</li>
-</ol>
-<p>Bug log columns: ID, Title, Flow, Severity, Steps to reproduce, Expected, Actual, Device and browser, Evidence, Likely cause, Suggested fix.</p>
-<p>Severity scale: <strong>Critical</strong> (money, data loss, security, cannot sign up), <strong>High</strong> (core flow broken for many users), <strong>Medium</strong> (workaround exists), <strong>Low</strong> (cosmetic or rare).</p>
+<p><strong>Part C: Testing.</strong> Write a short test strategy for this product: the top risks, what you would test manually, what you would automate and why, and what you would monitor in production. Then write <strong>at least 10 test cases</strong> for one critical flow (for example sign-up through first successful app run), including edge cases. Bonus: three automated tests (Playwright, Cypress or similar) against a page you are allowed to test as a normal user. Paste them in, or attach the files.</p>
+<p><strong>Part D: Fix or build one improvement.</strong> You cannot touch our production code. Choose one finding and show how you would fix it: a working prototype or patch in <strong>your own public or private repo</strong>, a small component, a Lighthouse before-and-after on a clone of a static page, or a documented code-level proposal. Say what you changed, why, how you tested it, and what could go wrong. Give the link to your repo or attach the files. If you did not have access to our code, say what you would check in it first.</p>
+<p><strong>Part E: Roadmap.</strong> From everything you found, list your <strong>top 10 recommendations</strong> ranked by impact and effort, with the reason for the order and a metric that will show success, and mark which 3 you would do in the first two weeks. Include one thing you would deliberately <strong>not</strong> do.</p>
+<p><strong>Part F: Coding questions (about 45 min).</strong> Below you will find four short JavaScript questions. Each has a code box and sample tests. Press <strong>Run tests</strong> to see which pass. Your code is saved automatically. We run extra tests you cannot see, so handle edge cases, not just the samples. You may use any tools you like, but you must be able to explain your code.</p>
+<p><strong>Finally</strong>, write a half-page executive summary of your three most important findings, and a short note on the tools you used, including AI tools, and where you disagreed with them.</p>
 <p>Be ready for a <strong>30-minute follow-up call</strong> within 48 hours of submission to walk through your findings and your code.</p>
 <h2>Suggested time plan</h2>
 <p>Plan about 8 hours of work across the window. Sleep and breaks are expected.</p>
@@ -257,7 +248,7 @@ $$;
 
 create or replace function app.hr_cand_json(c app.hiring_candidates) returns jsonb
 language sql stable as $$
-  select (to_jsonb(c) - 'answer' - 'auth_id' - 'code') || jsonb_build_object(
+  select (to_jsonb(c) - 'answer' - 'auth_id' - 'code' - 'report') || jsonb_build_object(
     'assignment_status', app.hr_status(c),
     'assignment_deadline', app.hr_deadline(c),
     'has_answer', coalesce(btrim(c.answer), '') <> '',
@@ -284,7 +275,7 @@ end $$;
 
 create or replace function app.hr_files_json(cid bigint) returns jsonb
 language sql stable as $$
-  select coalesce(jsonb_agg(jsonb_build_object('id', f.id, 'name', f.name, 'mime', f.mime, 'size', f.size, 'created_at', f.created_at)
+  select coalesce(jsonb_agg(jsonb_build_object('id', f.id, 'name', f.name, 'mime', f.mime, 'size', f.size, 'tag', f.tag, 'created_at', f.created_at)
                             order by f.created_at, f.id), '[]'::jsonb)
   from app.hiring_files f where f.candidate_id = cid
 $$;
@@ -401,7 +392,7 @@ begin
   select * into c from app.hiring_candidates where id = cid;
   if c.id is null then perform app.fail(404, 'Candidate not found.'); end if;
   return jsonb_build_object('candidate', app.hr_cand_json(c), 'answer', c.answer, 'answer_updated_at', c.answer_updated_at,
-                            'code', coalesce(c.code, '{}'::jsonb),
+                            'code', coalesce(c.code, '{}'::jsonb), 'report', coalesce(c.report, '{}'::jsonb),
                             'questions', coalesce((select data from app.hiring_questions where id = 1), '[]'::jsonb),
                             'files', app.hr_files_json(cid));
 end $$;
@@ -431,7 +422,7 @@ begin
     'started_at', c.assignment_started_at, 'deadline', app.hr_deadline(c),
     'submitted_at', c.assignment_submitted_at, 'server_now', now(),
     'answer', c.answer, 'answer_updated_at', c.answer_updated_at,
-    'code', coalesce(c.code, '{}'::jsonb), 'questions', coalesce(qs, '[]'::jsonb),
+    'code', coalesce(c.code, '{}'::jsonb), 'report', coalesce(c.report, '{}'::jsonb), 'questions', coalesce(qs, '[]'::jsonb),
     'files', app.hr_files_json(c.id),
     'brief', brief);
 end $$;
@@ -455,7 +446,7 @@ end $$;
 
 create or replace function app.hr_my_answer(c app.hiring_candidates, body jsonb) returns jsonb
 language plpgsql as $$
-declare a text; cd jsonb; k text;
+declare a text; cd jsonb; k text; rp jsonb;
 begin
   perform app.hr_my_open(c);
   if body ? 'answer' then
@@ -472,8 +463,14 @@ begin
       end if;
     end loop;
   end if;
+  if body ? 'report' then
+    rp := body->'report';
+    if jsonb_typeof(rp) <> 'object' then perform app.fail(400, 'The report could not be saved.'); end if;
+    if octet_length(rp::text) > 300000 then perform app.fail(400, 'The report is too long to save (about 300000 characters in total). Shorten the longest sections.'); end if;
+  end if;
   update app.hiring_candidates
-     set answer = case when body ? 'answer' then a else answer end,
+     set report = case when body ? 'report' then rp else report end,
+         answer = case when body ? 'answer' then a else answer end,
          code = case when body ? 'code' then cd else code end,
          answer_updated_at = now(), updated_at = now()
    where id = c.id;
@@ -485,13 +482,15 @@ language plpgsql as $$
 declare
   nm text := btrim(regexp_replace(coalesce(body->>'name', ''), '[\\/\x01-\x1f]', '_', 'g'));
   mt text := left(coalesce(nullif(btrim(body->>'mime'), ''), 'application/octet-stream'), 120);
+  tg text := coalesce(nullif(btrim(body->>'tag'), ''), 'gen');
   raw bytea;
 begin
   perform app.hr_my_open(c);
   if nm = '' then perform app.fail(400, 'The file has no name.'); end if;
   nm := left(nm, 150);
-  if (select count(*) from app.hiring_files where candidate_id = c.id) >= 10 then
-    perform app.fail(400, 'You can upload at most 10 files. Remove one, or put the rest in a linked folder.');
+  if tg !~ '^[a-z0-9_]{1,12}$' then perform app.fail(400, 'Bad attachment target.'); end if;
+  if (select count(*) from app.hiring_files where candidate_id = c.id) >= 40 then
+    perform app.fail(400, 'You can upload at most 40 files. Remove one, or put the rest in a linked folder.');
   end if;
   begin
     raw := decode(coalesce(body->>'data', ''), 'base64');
@@ -499,10 +498,22 @@ begin
     perform app.fail(400, 'That file could not be read.');
   end;
   if raw is null or octet_length(raw) = 0 then perform app.fail(400, 'The file is empty.'); end if;
-  if octet_length(raw) > 5242880 then perform app.fail(400, 'Each file must be 5 MB or smaller. Put larger files in a linked folder.'); end if;
-  insert into app.hiring_files (candidate_id, name, mime, size, data) values (c.id, nm, mt, octet_length(raw), raw);
+  if octet_length(raw) > 10485760 then perform app.fail(400, 'Each file must be 10 MB or smaller. Put larger files in a Drive folder and paste the link.'); end if;
+  if (select coalesce(sum(size), 0) from app.hiring_files where candidate_id = c.id) + octet_length(raw) > 62914560 then
+    perform app.fail(400, 'You have reached the 60 MB total for uploads. Remove a file, or link a folder.');
+  end if;
+  insert into app.hiring_files (candidate_id, name, mime, size, tag, data) values (c.id, nm, mt, octet_length(raw), tg, raw);
   update app.hiring_candidates set updated_at = now() where id = c.id;
   return jsonb_build_object('files', app.hr_files_json(c.id));
+end $$;
+
+create or replace function app.hr_my_file_get(c app.hiring_candidates, fid bigint) returns jsonb
+language plpgsql stable as $$
+declare f app.hiring_files;
+begin
+  select * into f from app.hiring_files where id = fid and candidate_id = c.id;
+  if f.id is null then perform app.fail(404, 'File not found.'); end if;
+  return jsonb_build_object('name', f.name, 'mime', f.mime, 'data', replace(encode(f.data, 'base64'), E'\n', ''));
 end $$;
 
 create or replace function app.hr_my_file_delete(c app.hiring_candidates, fid bigint) returns jsonb
@@ -572,6 +583,7 @@ begin
     elsif m = 'POST' and p = '/my/start' then return app.hr_my_start(cand);
     elsif m = 'PUT' and p = '/my/answer' then return app.hr_my_answer(cand, body);
     elsif m = 'POST' and p = '/my/files' then return app.hr_my_file_add(cand, body);
+    elsif m = 'GET' and p ~ '^/my/files/\d+$' then return app.hr_my_file_get(cand, id);
     elsif m = 'DELETE' and p ~ '^/my/files/\d+$' then return app.hr_my_file_delete(cand, id);
     elsif m = 'POST' and p = '/my/finish' then return app.hr_my_finish(cand);
     end if;
