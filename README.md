@@ -48,6 +48,15 @@ Everyone sees every venture and project, with all their modules and features, so
 - **Dates:** once a module's deadline is set, only admins can change its dates or its features' dates.
 - **No duplicates:** a module name already used in the project, or a feature name already used in the module, is refused. The form lists what already exists.
 
+## Hiring tracker (admins only)
+
+A separate page at `/employmenthiringassignment/` (https://tracker.ezyourlife.com/employmenthiringassignment/) tracks candidates through interview, 24-hour assignment and office round, with scores and feedback.
+
+- It is a plain static page in `web/public/employmenthiringassignment/`, so it does not touch the React app.
+- It uses the same sign-in as the tracker. Only users with the Admin role can see data.
+- Setup: run `supabase/sql/08_hiring.sql` once in the Supabase SQL Editor (or re-run the regenerated `supabase/setup.sql`). It is safe to run again.
+- The page calls one function, `public.hiring_api`. The tables are private like the rest.
+
 ## Google sign-in (optional)
 
 1. Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID → Web application. Authorised redirect URI: `https://qywialfcfqdtpqrifimo.supabase.co/auth/v1/callback`.
