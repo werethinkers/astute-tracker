@@ -3506,6 +3506,9 @@ on conflict (id) do update set data = excluded.data;
 -- BRIEF-END
 
 -- ---------- helpers (not callable from the browser) ----------
+-- Bumped whenever the page needs a newer copy of this file. The page checks it and says so if the database is behind.
+create or replace function app.hr_version() returns int language sql immutable as $$ select 3 $$;
+
 -- Hours a candidate gets once they press Start.
 create or replace function app.hr_hours() returns int language sql immutable as $$ select 24 $$;
 
@@ -3537,6 +3540,7 @@ $$;
 create or replace function app.hr_list() returns jsonb
 language sql stable as $$
   select jsonb_build_object(
+    'v', app.hr_version(),
     'candidates', coalesce((select jsonb_agg(app.hr_cand_json(c) order by c.created_at desc, c.id desc) from app.hiring_candidates c), '[]'::jsonb),
     'reviews',    coalesce((select jsonb_agg(to_jsonb(r) order by r.created_at desc, r.id desc) from app.hiring_reviews r), '[]'::jsonb)
   )
@@ -3669,7 +3673,7 @@ declare c app.hiring_candidates;
 begin
   select * into c from app.hiring_candidates where id = cid;
   if c.id is null then perform app.fail(404, 'Candidate not found.'); end if;
-  return jsonb_build_object('candidate', app.hr_cand_json(c), 'answer', c.answer, 'answer_updated_at', c.answer_updated_at,
+  return jsonb_build_object('v', app.hr_version(), 'candidate', app.hr_cand_json(c), 'answer', c.answer, 'answer_updated_at', c.answer_updated_at,
                             'code', coalesce(c.code, '{}'::jsonb), 'report', coalesce(c.report, '{}'::jsonb),
                             'questions', coalesce((select data from app.hiring_questions where id = 1), '[]'::jsonb),
                             'files', app.hr_files_json(cid));
@@ -3694,7 +3698,7 @@ begin
     select coalesce(jsonb_agg(q - 'hidden'), '[]'::jsonb) into qs from app.hiring_questions h, jsonb_array_elements(h.data) q where h.id = 1;
   end if;
   return jsonb_build_object(
-    'role', 'candidate',
+    'role', 'candidate', 'v', app.hr_version(),
     'name', c.name, 'login_id', c.login_id,
     'status', st, 'hours', app.hr_hours(),
     'started_at', c.assignment_started_at, 'deadline', app.hr_deadline(c),
@@ -3752,7 +3756,7 @@ begin
          code = case when body ? 'code' then cd else code end,
          answer_updated_at = now(), updated_at = now()
    where id = c.id;
-  return jsonb_build_object('ok', true, 'saved_at', now());
+  return jsonb_build_object('ok', true, 'v', app.hr_version(), 'saved_at', now());
 end $$;
 
 create or replace function app.hr_my_file_add(c app.hiring_candidates, body jsonb) returns jsonb

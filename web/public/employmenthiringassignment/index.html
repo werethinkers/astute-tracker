@@ -54,6 +54,7 @@
         <p class="small muted">If you are a candidate, check your User ID and password with the person who invited you.</p>
       </section>
 
+      <p id="stale" class="error stale" role="alert" hidden></p>
       <div id="content" hidden>
         <section class="stats" id="stats" aria-label="Summary"></section>
 
@@ -71,6 +72,7 @@
   </div>
 
   <dialog id="drawer" aria-labelledby="drawer-title"></dialog>
+  <dialog id="review" aria-label="Candidate report"></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <script type="module" src="app.js"></script>

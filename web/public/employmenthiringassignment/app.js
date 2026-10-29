@@ -24,6 +24,7 @@ const STATUS_LABEL = { not_started: "Not started", running: "In progress", submi
 const MAX_FILE = 10 * 1024 * 1024;
 const MAX_FILES = 40;
 const HOUR = 3600 * 1000;
+const SCHEMA_V = 3; // must match app.hr_version() in supabase/sql/08_hiring.sql
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (v) =>
@@ -54,7 +55,8 @@ let tickTimer = null;
 let toastTimer = null;
 let saveTimer = null;
 let dirtyAnswer = false;
-let subCtx = null; // admin: the open candidate's questions and code
+let subCtx = null; // admin: the open candidate's full submission
+const STALE = "The hiring database is older than this page. Run supabase/sql/08_hiring.sql again in the Supabase SQL Editor.";
 
 // Time on the server minus time on this device, so a wrong laptop clock cannot fool the countdown.
 const setOffset = (serverNow) => {
@@ -177,6 +179,7 @@ async function handleSession(session) {
     const me = await api("GET", "/my");
     state.role = "candidate";
     state.me = me;
+    if (me.v !== SCHEMA_V) toast("This portal is not fully set up, so your work may not be saved. Keep this page open and tell the hiring team.", true);
     setOffset(me.server_now);
     showPanel("candidate");
     renderCandidate();
@@ -569,7 +572,8 @@ async function saveAnswer() {
   const codeNow = collectCode();
   const snapshot = JSON.stringify(state.me.report || {});
   try {
-    await api("PUT", "/my/answer", { report: state.me.report || {}, code: codeNow });
+    const res = await api("PUT", "/my/answer", { report: state.me.report || {}, code: codeNow });
+    if (res.v !== SCHEMA_V) throw new Error("The portal database is out of date, so your work is NOT being saved. Keep this page open and tell the hiring team.");
     if (JSON.stringify(state.me.report || {}) === snapshot) dirtyAnswer = false;
     state.me.code = codeNow;
     const when = `Saved ${new Intl.DateTimeFormat(undefined, { timeStyle: "medium" }).format(new Date(now()))}`;
@@ -746,6 +750,8 @@ async function loadData() {
     const d = await api("GET", "/candidates");
     state.candidates = d.candidates || [];
     state.evals = d.reviews || [];
+    $("#stale").hidden = d.v === SCHEMA_V;
+    $("#stale").textContent = STALE + " Until then candidates' reports are not saved.";
     setOffset(state.candidates[0]?.server_now);
     showPanel("admin");
     renderBoard();
@@ -979,90 +985,230 @@ function openDrawer(id) {
 async function loadSubmission(id) {
   try {
     const s = await api("GET", `/candidates/${id}/submission`);
+    if (s.v !== SCHEMA_V) {
+      $("#stale").hidden = false;
+      $("#stale").textContent = STALE + " Until then candidates' reports are not saved.";
+    }
+    subCtx = s;
     if (String(state.openId) !== String(id)) return;
     const box = $("#sub-box");
     if (!box) return;
-    const files = (s.files || [])
-      .map(
-        (f) => `<li><span class="fname">${esc(f.name)}</span><span class="muted small">${esc(fmtSize(f.size))}</span>
-        <button type="button" class="btn small" data-act="file-get" data-id="${esc(f.id)}" data-name="${esc(f.name)}">Download</button></li>`
-      )
-      .join("");
-    box.innerHTML = `<h4>Report${s.answer_updated_at ? ` <span class="muted small">(saved ${esc(fmtDate(s.answer_updated_at))})</span>` : ""}</h4>
-      ${reportViewHtml(s.report || {}, s.files || [], s.answer)}
-      <h4>All files</h4>
-      <ul class="filelist">${files || '<li class="muted small">No files uploaded.</li>'}</ul>
-      <h4>Coding questions</h4>
-      ${
-        (s.questions || [])
-          .map((q) => {
-            const code = (s.code || {})[q.id];
-            return `<details class="question-admin" data-q="${esc(q.id)}"><summary>${esc(q.title)} ${code && code.trim() !== q.starter.trim() ? "" : '<span class="muted small">(not attempted)</span>'}</summary>
-              <pre class="codeview">${esc(code ?? "(no code saved)")}</pre>
-              <button class="btn small" type="button" data-act="admin-run" data-q="${esc(q.id)}">Run all tests (sample + hidden)</button>
-              <div class="results" id="ares-${esc(q.id)}"></div></details>`;
-          })
-          .join("") || '<p class="muted small">No coding questions loaded.</p>'
-      }`;
-    subCtx = { id, questions: s.questions || [], code: s.code || {} };
-    loadImages((fid) => api("GET", `/files/${fid}`), box);
+    const st = reportStats(s);
+    box.innerHTML = `<div class="chips">
+        <span class="chip ${st.bugs >= 8 ? "good" : ""}">${st.bugs} bugs</span>
+        <span class="chip ${st.ux >= 5 ? "good" : ""}">${st.ux} UX problems</span>
+        <span class="chip">${st.shots} screenshots</span>
+        <span class="chip">${(s.files || []).length} files</span>
+        <span class="chip">${st.codeTried} of ${(s.questions || []).length} coding questions attempted</span></div>
+      ${s.answer_updated_at ? `<p class="muted small">Last saved ${esc(fmtDate(s.answer_updated_at))}</p>` : '<p class="muted small">Nothing saved yet.</p>'}
+      <div class="actions"><button class="btn primary" type="button" data-act="open-review">Open full report</button></div>`;
   } catch (e) {
     const box = $("#sub-box");
     if (box) box.innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
 }
 
-/* ---------- admin: read-only view of a candidate's report ---------- */
-function reportViewHtml(r, files, legacyAnswer) {
+/* ---------- admin: the full-page report ---------- */
+const filledItem = (x, files) => filled(x) || files.some((f) => f.tag === x.id);
+
+function reportStats(s) {
+  const r = s.report || {};
+  const files = s.files || [];
+  const bugs = (r.bugs || []).filter((x) => filledItem(x, files));
+  const ux = (r.ux || []).filter((x) => filledItem(x, files));
+  const road = (r.roadmap || []).filter((x) => filledItem(x, files));
+  const flows = new Set(bugs.map((b) => (b.flow || "").trim().toLowerCase()).filter(Boolean));
+  const starters = Object.fromEntries((s.questions || []).map((q) => [q.id, q.starter.trim()]));
+  const codeTried = Object.entries(s.code || {}).filter(([k, v]) => v && v.trim() && v.trim() !== starters[k]).length;
+  return {
+    bugs: bugs.length,
+    bugsWithShot: bugs.filter((b) => files.some((f) => f.tag === b.id && isImg(f))).length,
+    flows: flows.size,
+    ux: ux.length,
+    uxWithShot: ux.filter((u) => files.some((f) => f.tag === u.id && isImg(f))).length,
+    road: road.length,
+    first2: road.filter((x) => x.first2).length,
+    shots: files.filter(isImg).length,
+    codeTried,
+  };
+}
+
+function tagLabel(tag, r) {
+  const idx = (list) => (r[list] || []).findIndex((x) => x.id === tag);
+  if (tag === "p0") return "Part 0";
+  if (tag === "pb") return "Part B";
+  if (tag === "pc") return "Part C";
+  if (tag === "pd") return "Part D";
+  if (tag === "gen") return "Wrap-up";
+  if (idx("bugs") >= 0) return `Bug B-${pad(idx("bugs") + 1)}`;
+  if (idx("ux") >= 0) return `UX ${idx("ux") + 1}`;
+  return "Other";
+}
+
+function elapsed(c) {
+  if (!c.assignment_started_at) return "Not started";
+  const end = c.assignment_submitted_at ? new Date(c.assignment_submitted_at).getTime() : Math.min(now(), new Date(c.assignment_deadline).getTime());
+  return humanLeft(Math.max(0, end - new Date(c.assignment_started_at).getTime()));
+}
+
+function reviewHtml(s) {
+  const r = s.report || {};
+  const files = s.files || [];
+  const c = s.candidate;
+  const st = reportStats(s);
+  const info = assignmentInfo(c);
   const att = (tag) => {
     const mine = files.filter((f) => (f.tag || "gen") === tag);
     if (!mine.length) return "";
-    const shots = mine.filter(isImg).map((f) => `<figure class="shot"><a data-fid="${esc(f.id)}" target="_blank" rel="noopener"><img data-fid="${esc(f.id)}" alt="${esc(f.name)}"></a><figcaption class="fname">${esc(f.name)}</figcaption></figure>`).join("");
-    const rest = mine.filter((f) => !isImg(f)).map((f) => `<li><span class="fname">${esc(f.name)}</span> <button type="button" class="btn small" data-act="file-get" data-id="${esc(f.id)}" data-name="${esc(f.name)}">Download</button></li>`).join("");
+    const shots = mine.filter(isImg).map((f) => `<figure class="shot big"><a data-act="lightbox" data-fid="${esc(f.id)}" href="#"><img data-fid="${esc(f.id)}" alt="${esc(f.name)}"></a><figcaption class="fname">${esc(f.name)}</figcaption></figure>`).join("");
+    const rest = mine.filter((f) => !isImg(f)).map((f) => `<li><span class="fname">${esc(f.name)}</span><span class="muted small">${esc(fmtSize(f.size))}</span> <button type="button" class="btn small" data-act="file-get" data-id="${esc(f.id)}" data-name="${esc(f.name)}">Download</button></li>`).join("");
     return `${shots ? `<div class="shots">${shots}</div>` : ""}${rest ? `<ul class="filelist">${rest}</ul>` : ""}`;
   };
   const txt = (label, v) => (v && String(v).trim() ? `<div class="rv-field"><div class="rv-label">${esc(label)}</div><div class="answer-view">${esc(v)}</div></div>` : "");
   const line = (label, v) => (v && String(v).trim() ? `<div class="rv-line"><span class="rv-label">${esc(label)}</span> ${esc(v)}</div>` : "");
   const link = (label, v) => (isHttpUrl(v) ? `<div class="rv-line"><span class="rv-label">${esc(label)}</span> <a href="${esc(v)}" target="_blank" rel="noopener noreferrer">${esc(v)}</a></div>` : "");
-  const sec = (title, inner) => `<details class="rv" open><summary>${esc(title)}</summary>${inner || '<p class="muted small">Nothing written.</p>'}</details>`;
-  const used = (list) => (list || []).filter((x) => filled(x) || files.some((f) => f.tag === x.id));
+  const empty = '<p class="muted small">Nothing written.</p>';
+  const sec = (id, title, sub, inner) => `<section class="rsec" id="rs-${id}"><div class="rsec-head"><h2>${esc(title)}</h2><span class="muted small">${esc(sub || "")}</span></div>${inner || empty}</section>`;
+  const check = (ok, label, detail) => `<li class="${ok ? "ok" : "no"}"><span class="tick" aria-hidden="true">${ok ? "✓" : "✗"}</span><span><strong>${esc(label)}</strong> <span class="muted small">${esc(detail)}</span></span></li>`;
 
-  const bugs = used(r.bugs).map((b, i) => `<div class="rv-item"><strong>B-${pad(i + 1)} ${esc(b.title || "(no title)")}</strong>
-    ${b.severity ? `<span class="chip ${b.severity === "Critical" || b.severity === "High" ? "bad" : b.severity === "Medium" ? "warn" : ""}">${esc(b.severity)}</span>` : ""}
-    ${line("Flow", b.flow)}${line("Device", b.device)}${txt("Steps", b.steps)}${txt("Expected", b.expected)}${txt("Actual", b.actual)}${txt("Likely cause", b.cause)}${txt("Suggested fix", b.fix)}${link("Recording", b.video)}${att(b.id)}</div>`).join("");
-  const ux = used(r.ux).map((u, i) => `<div class="rv-item"><strong>UX ${i + 1} ${esc(u.title || "(no title)")}</strong>
-    ${txt("Evidence", u.evidence)}${txt("Who it hurts", u.hurts)}${txt("Redesign", u.redesign)}${att(u.id)}</div>`).join("");
-  const road = used(r.roadmap).map((x, i) => `<div class="rv-item"><strong>#${i + 1} ${esc(x.rec || "(empty)")}</strong>
-    ${x.impact ? `<span class="chip">Impact ${esc(x.impact)}</span>` : ""}${x.effort ? `<span class="chip">Effort ${esc(x.effort)}</span>` : ""}${x.first2 ? '<span class="chip good">First 2 weeks</span>' : ""}
-    ${txt("Why this rank", x.why)}${line("Metric", x.metric)}</div>`).join("");
+  const bugs = (r.bugs || []).filter((x) => filledItem(x, files)).map((b, i) => `<article class="bug">
+    <header><span class="bid">B-${pad(i + 1)}</span><h3>${esc(b.title || "(no title)")}</h3>
+      ${b.severity ? `<span class="chip ${b.severity === "Critical" || b.severity === "High" ? "bad" : b.severity === "Medium" ? "warn" : ""}">${esc(b.severity)}</span>` : '<span class="chip">No severity</span>'}</header>
+    <div class="meta">${b.flow ? `<span>Flow: ${esc(b.flow)}</span>` : ""}${b.device ? `<span>Device: ${esc(b.device)}</span>` : ""}</div>
+    <div class="cols">${txt("Steps to reproduce", b.steps)}<div>${txt("Expected", b.expected)}${txt("Actual", b.actual)}</div></div>
+    <div class="cols">${txt("Likely root cause", b.cause)}${txt("Suggested fix", b.fix)}</div>
+    ${link("Recording", b.video)}${att(b.id) || '<p class="small nofile">No screenshot attached.</p>'}</article>`).join("");
+  const ux = (r.ux || []).filter((x) => filledItem(x, files)).map((u, i) => `<article class="bug"><header><span class="bid">UX ${i + 1}</span><h3>${esc(u.title || "(no title)")}</h3></header>
+    <div class="cols">${txt("What happens, with evidence", u.evidence)}<div>${txt("Who it hurts", u.hurts)}${txt("Redesign", u.redesign)}</div></div>${att(u.id) || '<p class="small nofile">No screenshot attached.</p>'}</article>`).join("");
+  const road = (r.roadmap || []).filter((x) => filledItem(x, files));
+  const roadHtml = road.length
+    ? `<div class="tablewrap"><table class="rtable"><thead><tr><th>#</th><th>Recommendation</th><th>Impact</th><th>Effort</th><th>Why this rank</th><th>Metric</th><th>First 2 weeks</th></tr></thead><tbody>${road
+        .map((x, i) => `<tr><td>${i + 1}</td><td>${esc(x.rec)}</td><td>${esc(x.impact)}</td><td>${esc(x.effort)}</td><td>${esc(x.why)}</td><td>${esc(x.metric)}</td><td>${x.first2 ? "Yes" : ""}</td></tr>`)
+        .join("")}</tbody></table></div>`
+    : "";
+  const code = (s.questions || []).map((q) => {
+    const v = (s.code || {})[q.id];
+    const tried = v && v.trim() && v.trim() !== q.starter.trim();
+    return `<article class="bug"><header><span class="bid">${esc(q.id.toUpperCase())}</span><h3>${esc(q.title)}</h3><span class="chip" id="rt-${esc(q.id)}">${tried ? "Running tests..." : "Not attempted"}</span></header>
+      <pre class="codeview">${esc(v ?? "(no code saved)")}</pre><div class="results" id="rr-${esc(q.id)}"></div></article>`;
+  }).join("");
+  const filesTable = files.length
+    ? `<div class="tablewrap"><table class="rtable"><thead><tr><th>File</th><th>Belongs to</th><th>Size</th><th></th></tr></thead><tbody>${files
+        .map((f) => `<tr><td>${esc(f.name)}</td><td>${esc(tagLabel(f.tag || "gen", r))}</td><td>${esc(fmtSize(f.size))}</td><td><button type="button" class="btn small" data-act="file-get" data-id="${esc(f.id)}" data-name="${esc(f.name)}">Download</button></td></tr>`)
+        .join("")}</tbody></table></div>`
+    : "";
 
-  return [
-    sec("Wrap-up: summary and tools", txt("Executive summary", r.summary) + txt("Tools used", r.tools) + link("Link", r.link) + att("gen") + (legacyAnswer ? txt("Earlier answer box", legacyAnswer) : "")),
-    sec(`Part A · Bugs (${used(r.bugs).length})`, bugs),
-    sec(`Part B · UX audit (${used(r.ux).length} problems)`, txt("First five minutes", r.ux_first5) + ux + txt("Accessibility", r.ux_a11y) + txt("Clarity of the promise", r.ux_promise) + att("pb")),
-    sec("Part C · Testing", txt("Strategy", r.test_strategy) + txt("Test cases", r.test_cases) + txt("Automated tests", r.test_auto) + att("pc")),
-    sec("Part D · Fix or improvement", link("Repo or prototype", r.fix_link) + txt("What and why", r.fix_what) + txt("How tested", r.fix_how) + txt("What could go wrong", r.fix_risks) + att("pd")),
-    sec(`Part E · Roadmap (${used(r.roadmap).length})`, road + txt("Would not do", r.roadmap_not)),
-    sec("Part 0 · Product map", txt("Map", r.part0) + att("p0")),
-  ].join("");
+  return `<div class="rhead">
+      <div><p class="eyebrow">Candidate report</p><h1>${esc(c.name)}</h1>
+        <p class="muted">${esc(c.role)} · ID ${esc(c.login_id || "none")} · <span class="chip ${info.tone}">${esc(info.text)}</span></p></div>
+      <div class="rmeta"><div><span class="rv-label">Time used</span><strong>${esc(elapsed(c))}</strong> of 24h</div>
+        <div><span class="rv-label">Started</span>${esc(c.assignment_started_at ? fmtDate(c.assignment_started_at) : "Not started")}</div>
+        <div><span class="rv-label">Last saved</span>${esc(s.answer_updated_at ? fmtDate(s.answer_updated_at) : "Never")}</div></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="num">${st.bugs}</div><div class="lbl">Bugs (8 needed)</div></div>
+      <div class="kpi"><div class="num">${st.ux}</div><div class="lbl">UX problems (5)</div></div>
+      <div class="kpi"><div class="num">${st.shots}</div><div class="lbl">Screenshots</div></div>
+      <div class="kpi"><div class="num">${st.road}</div><div class="lbl">Roadmap items</div></div>
+      <div class="kpi" id="kpi-tests"><div class="num">–</div><div class="lbl">Coding tests passed</div></div>
+    </div>
+    <div class="rgrid">
+      <aside class="rnav" aria-label="Report sections"><strong class="small muted">Sections</strong>
+        <a href="#rs-check">Checklist</a><a href="#rs-wrap">Summary and tools</a><a href="#rs-a">A · Bugs</a><a href="#rs-b">B · UX audit</a><a href="#rs-c">C · Testing</a><a href="#rs-d">D · Fix</a><a href="#rs-e">E · Roadmap</a><a href="#rs-f">F · Coding</a><a href="#rs-0">0 · Product map</a><a href="#rs-files">All files</a></aside>
+      <div class="rbody">
+        ${sec("check", "Completeness check", "against the brief", `<ul class="checklist">
+          ${check(st.bugs >= 8, `${st.bugs} bugs logged`, "8 needed")}
+          ${check(st.flows >= 3, `${st.flows} different flows covered`, "3 needed")}
+          ${check(st.bugs > 0 && st.bugsWithShot === st.bugs, `${st.bugsWithShot} of ${st.bugs} bugs have a screenshot`, "evidence for every bug")}
+          ${check(st.ux >= 5, `${st.ux} UX problems`, "5 needed")}
+          ${check(st.ux > 0 && st.uxWithShot === st.ux, `${st.uxWithShot} of ${st.ux} UX problems have a screenshot`, "")}
+          ${check(!!(r.test_cases || "").trim(), "Test cases written", "10 needed; count them yourself")}
+          ${check(isHttpUrl(r.fix_link) || !!(r.fix_what || "").trim(), "Part D fix described", "link or write-up")}
+          ${check(st.road >= 10, `${st.road} roadmap items`, "10 needed")}
+          ${check(!!(r.summary || "").trim() && !!(r.tools || "").trim(), "Summary and tools note present", "")}
+        </ul>`)}
+        ${sec("wrap", "Executive summary and tools", "", txt("Executive summary", r.summary) + txt("Tools used, including AI tools", r.tools) + link("Link to full report", r.link) + att("gen") + (s.answer ? txt("Earlier answer box", s.answer) : ""))}
+        ${sec("a", "Part A · Bug hunt", `${st.bugs} bugs · 30 points`, bugs)}
+        ${sec("b", "Part B · UX audit", `${st.ux} problems · 25 points`, txt("The first five minutes", r.ux_first5) + ux + txt("Accessibility", r.ux_a11y) + txt("Clarity of the promise", r.ux_promise) + att("pb"))}
+        ${sec("c", "Part C · Testing", "15 points", txt("Test strategy", r.test_strategy) + txt("Test cases", r.test_cases) + txt("Automated tests", r.test_auto) + att("pc"))}
+        ${sec("d", "Part D · Fix or improvement", "20 points", link("Repo or prototype", r.fix_link) + txt("What and why", r.fix_what) + txt("How it was tested", r.fix_how) + txt("What could go wrong", r.fix_risks) + att("pd"))}
+        ${sec("e", "Part E · Roadmap", "10 points", roadHtml + txt("One thing they would not do", r.roadmap_not))}
+        ${sec("f", "Part F · Coding questions", "sample and hidden tests, run just now", code)}
+        ${sec("0", "Part 0 · Product map", "", txt("Map", r.part0) + att("p0"))}
+        ${sec("files", "All files", `${files.length} files`, filesTable)}
+      </div></div>`;
 }
 
-async function adminRun(qid, btn) {
-  if (!subCtx) return;
-  const q = subCtx.questions.find((x) => x.id === qid);
-  const out = $(`#ares-${qid}`);
-  if (!q || !out) return;
-  const code = subCtx.code[qid];
-  if (!code || !code.trim()) {
-    out.innerHTML = '<p class="muted small">No code to run.</p>';
-    return;
+async function openReview() {
+  const s = subCtx;
+  if (!s) return;
+  const dlg = $("#review");
+  dlg.innerHTML = `<div class="review-top"><button class="btn dark" type="button" data-act="review-close">Back to candidates</button>
+      <div class="spacer"></div><button class="btn dark" type="button" data-act="review-print">Print or save as PDF</button></div>
+    <div class="review-page">${reviewHtml(s)}</div>`;
+  if (!dlg.open) dlg.showModal();
+  dlg.scrollTop = 0;
+  loadImages((fid) => api("GET", `/files/${fid}`), dlg);
+  runReviewTests(s);
+}
+
+async function runReviewTests(s) {
+  let passed = 0;
+  let total = 0;
+  for (const q of s.questions || []) {
+    const code = (s.code || {})[q.id];
+    const chip = $(`#rt-${q.id}`);
+    const out = $(`#rr-${q.id}`);
+    if (!code || !code.trim() || code.trim() === q.starter.trim()) {
+      total += q.visible.length + (q.hidden || []).length;
+      continue;
+    }
+    const cases = [...q.visible, ...(q.hidden || []).map((h) => ({ ...h, hidden: true }))];
+    const res = await runTests(code, q.fn, cases);
+    total += cases.length;
+    if (res.error) {
+      if (chip) {
+        chip.textContent = "Error";
+        chip.className = "chip bad";
+      }
+      if (out) out.innerHTML = resultsHtml(res, cases, true);
+      continue;
+    }
+    const ok = res.results.filter((r) => r.ok).length;
+    passed += ok;
+    if (chip) {
+      chip.textContent = `${ok} of ${cases.length} tests passed`;
+      chip.className = "chip " + (ok === cases.length ? "good" : ok === 0 ? "bad" : "warn");
+    }
+    if (out) out.innerHTML = `<details><summary class="small">Show test details</summary>${resultsHtml(res, cases, true)}</details>`;
   }
-  const cases = [...q.visible, ...(q.hidden || []).map((h) => ({ ...h, hidden: true }))];
-  btn.disabled = true;
-  out.textContent = "Running...";
-  const res = await runTests(code, q.fn, cases);
-  out.innerHTML = resultsHtml(res, cases, true);
-  btn.disabled = false;
+  const k = $("#kpi-tests .num");
+  if (k) k.textContent = `${passed}/${total}`;
+}
+
+function openLightbox(fid) {
+  const url = fileUrls.get(String(fid));
+  if (!url) return;
+  const box = document.createElement("div");
+  box.className = "lightbox";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", "Screenshot preview");
+  box.innerHTML = `<img src="${esc(url)}" alt="Screenshot, full size"><button type="button" class="btn dark" data-act="lb-close">Close</button>`;
+  const close = () => {
+    box.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    }
+  };
+  box.addEventListener("click", close);
+  document.addEventListener("keydown", onKey, true);
+  $("#review").append(box);
+  box.querySelector("button").focus();
 }
 
 async function downloadFile(id, fallbackName) {
@@ -1259,6 +1405,20 @@ function wire() {
     else if (btn.dataset.act === "rm-item") removeItem(btn.dataset.list, btn.dataset.id);
   });
 
+  const review = $("#review");
+  review.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-act]");
+    if (!btn) return;
+    const act = btn.dataset.act;
+    if (act === "review-close") review.close();
+    else if (act === "review-print") window.print();
+    else if (act === "file-get") downloadFile(btn.dataset.id, btn.dataset.name);
+    else if (act === "lightbox") {
+      e.preventDefault();
+      openLightbox(btn.dataset.fid);
+    }
+  });
+
   const drawer = $("#drawer");
   drawer.addEventListener("click", (e) => {
     if (e.target === drawer) return closeDrawer(); // click on the backdrop
@@ -1271,7 +1431,7 @@ function wire() {
     else if (act === "asg-reset") resetClock();
     else if (act === "file-get") downloadFile(btn.dataset.id, btn.dataset.name);
     else if (act === "copy-creds") copyCreds();
-    else if (act === "admin-run") adminRun(btn.dataset.q, btn);
+    else if (act === "open-review") openReview();
   });
   drawer.addEventListener("submit", (e) => {
     e.preventDefault();
