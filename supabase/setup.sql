@@ -3440,6 +3440,10 @@ declare
 begin
   me := app.current_person();
   perform app.require_admin(me);
+  -- Hiring data is visible to one login only: work.abhijay@<any domain>.
+  if lower(split_part(coalesce(me.email, ''), '@', 1)) <> 'work.abhijay' then
+    perform app.fail(403, 'Hiring is restricted to the work.abhijay login.');
+  end if;
   body := coalesce(body, '{}'::jsonb);
   if p ~ '/\d+(/|$)' then id := substring(p from '/(\d+)(?:/|$)')::bigint; end if;
 
