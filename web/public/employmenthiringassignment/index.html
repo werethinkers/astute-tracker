@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#000000">
-  <title>Hiring | Astute Work Tracker</title>
+  <title>Hiring | Astute</title>
   <link rel="icon" type="image/png" href="/mark-32.png">
   <link rel="apple-touch-icon" href="/mark-180.png">
   <link rel="stylesheet" href="styles.css">
@@ -18,16 +18,16 @@
       <img class="logo" src="/logo.png" alt="Astute" height="44">
       <p class="eyebrow">Hiring</p>
       <h1>Sign in</h1>
-      <p class="muted">Admins only. Use the same email and password as the work tracker.</p>
+      <p class="muted">Use the User ID and password you were given.</p>
       <form id="login-form" novalidate>
-        <label for="login-id">Email</label>
-        <input id="login-id" name="id" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+        <label for="login-id">User ID or email</label>
+        <input id="login-id" name="id" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
         <label for="login-pass">Password</label>
         <input id="login-pass" name="password" type="password" autocomplete="current-password" required>
         <p id="login-error" class="error" role="alert" hidden></p>
         <button class="btn primary block" id="login-btn" type="submit">Sign in</button>
       </form>
-      <p class="small muted center-text"><a href="/">Back to the work tracker</a></p>
+      
     </section>
   </main>
 
@@ -39,20 +39,22 @@
         <span class="brand-name">Hiring</span>
       </div>
       <div class="topbar-right">
-        <a class="toplink" href="/">Work tracker</a>
+        <a class="toplink admin-only" href="/" hidden>Work tracker</a>
         <span id="who" class="small"></span>
         <button class="btn dark" id="logout-btn" type="button">Log out</button>
       </div>
     </header>
 
     <main class="page">
+      <section id="candidate-view" hidden></section>
+
       <section id="denied" class="card denied" hidden>
-        <h2>This area is for admins</h2>
+        <h2>This account cannot open this page</h2>
         <p id="denied-msg" class="muted"></p>
-        <p class="small muted">Ask an admin to make your account an Admin on the People page of the work tracker, then sign in again.</p>
+        <p class="small muted">If you are a candidate, check your User ID and password with the person who invited you.</p>
       </section>
 
-      <div id="content">
+      <div id="content" hidden>
         <section class="stats" id="stats" aria-label="Summary"></section>
 
         <section class="toolbar" aria-label="Filters">

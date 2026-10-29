@@ -48,14 +48,15 @@ Everyone sees every venture and project, with all their modules and features, so
 - **Dates:** once a module's deadline is set, only admins can change its dates or its features' dates.
 - **No duplicates:** a module name already used in the project, or a feature name already used in the module, is refused. The form lists what already exists.
 
-## Hiring tracker (admins only)
+## Hiring tracker (one admin login)
 
-A separate page at `/employmenthiringassignment/` (https://tracker.ezyourlife.com/employmenthiringassignment/) tracks candidates through interview, 24-hour assignment and office round, with scores and feedback.
+A separate page at `/employmenthiringassignment/` (https://tracker.ezyourlife.com/employmenthiringassignment/) runs the hiring process.
 
-- It is a plain static page in `web/public/employmenthiringassignment/`, so it does not touch the React app.
-- It uses the same sign-in as the tracker. Only users with the Admin role can see data.
-- Setup: run `supabase/sql/08_hiring.sql` once in the Supabase SQL Editor (or re-run the regenerated `supabase/setup.sql`). It is safe to run again.
-- The page calls one function, `public.hiring_api`. The tables are private like the rest.
+- **Admin** (`work.abhijayjain@gmail.com` only): adds a candidate with a User ID and password. The 24-hour assignment is assigned straight away. The admin sees status, the written answer and uploaded files, adds reviews and scores, and can reset a clock after a technical problem.
+- **Candidate**: signs in with the User ID, presses Start (the clock runs 24 hours on the database's clock), reads the brief, writes an answer (autosaved) and uploads up to 10 files of 5 MB. At zero, or after "Submit final", the database refuses every change.
+- Candidates only ever reach their own row. Their login is separate from the work tracker (own session key, no tracker account).
+- The page is plain static files in `web/public/employmenthiringassignment/`. All rules are enforced in SQL by one function, `public.hiring_api`; tables are private.
+- Setup: run `supabase/sql/08_hiring.sql` in the Supabase SQL Editor (safe to run again). The assignment text lives in `supabase/brief/assignment.md`; after editing it run `python3 supabase/brief/build_brief.py` and `node supabase/build-setup.mjs`, then re-run the SQL.
 
 ## Google sign-in (optional)
 
